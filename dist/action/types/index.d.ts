@@ -227,6 +227,7 @@ export type SkillReport = z.infer<typeof SkillReportSchema>;
 export declare const GitHubEventTypeSchema: z.ZodEnum<{
     schedule: "schedule";
     pull_request: "pull_request";
+    pull_request_target: "pull_request_target";
     issues: "issues";
     issue_comment: "issue_comment";
     pull_request_review: "pull_request_review";
@@ -300,6 +301,7 @@ export declare const EventContextSchema: z.ZodObject<{
     eventType: z.ZodEnum<{
         schedule: "schedule";
         pull_request: "pull_request";
+        pull_request_target: "pull_request_target";
         issues: "issues";
         issue_comment: "issue_comment";
         pull_request_review: "pull_request_review";

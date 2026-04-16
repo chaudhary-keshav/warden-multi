@@ -43972,6 +43972,7 @@ const SkillReportSchema = zod__WEBPACK_IMPORTED_MODULE_0__/* .object */ .Ikc({
 // GitHub event types
 const GitHubEventTypeSchema = zod__WEBPACK_IMPORTED_MODULE_0__/* ["enum"] */ .k5n([
     'pull_request',
+    'pull_request_target',
     'issues',
     'issue_comment',
     'pull_request_review',
@@ -91277,7 +91278,7 @@ function isAbsolute(path) {
 
 // posix version
 /** JSDoc */
-function main_join(...args) {
+function action_join(...args) {
   return normalizePath(args.join('/'));
 }
 
@@ -104426,7 +104427,7 @@ function matchTrigger(trigger, context, environment) {
             // Local mode runs all skills — skip event/action checks, fall through to path filters
         }
         else {
-            if (context.eventType !== 'pull_request') {
+            if (context.eventType !== 'pull_request' && context.eventType !== 'pull_request_target') {
                 return false;
             }
             if (!trigger.actions?.includes(context.action)) {
@@ -106066,7 +106067,7 @@ async function buildEventContext(eventName, eventPayload, repoPath, octokit) {
         defaultBranch: payload.repository.default_branch,
     };
     let pullRequest;
-    if (eventName === 'pull_request' && payload.pull_request) {
+    if ((eventName === 'pull_request' || eventName === 'pull_request_target') && payload.pull_request) {
         const pr = payload.pull_request;
         // Fetch files changed in the PR
         const files = await fetchPullRequestFiles(octokit, repository.owner, repository.name, pr.number);
@@ -121542,4 +121543,7 @@ run()
     await flushSentry();
     process.exit(1);
 });
+
+;// CONCATENATED MODULE: ./src/action/index.ts
+
 

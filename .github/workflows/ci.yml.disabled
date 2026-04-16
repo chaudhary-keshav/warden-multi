@@ -1,0 +1,37 @@
+name: CI
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main, "release/*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm build:action
+
+      - run: pnpm pack
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.sha }}
+          path: "*.tgz"

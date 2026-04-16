@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump type
+        required: true
+        type: choice
+        default: minor
+        options:
+          - minor
+          - patch
+          - major
+      force:
+        description: Force release (bypass blockers)
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get auth token
+        id: token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.SENTRY_RELEASE_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.SENTRY_RELEASE_BOT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.token.outputs.token }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Calculate version
+        id: version
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          NEW=$(npx semver -i ${{ inputs.bump }} $CURRENT)
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          echo "new=$NEW" >> $GITHUB_OUTPUT
+
+      # Craft uses `git describe --tags` to find the previous version.
+      # Our release process creates tags on dist/ artifact commits (for GitHub
+      # Action users), but those commits aren't ancestors of main. This causes
+      # `git describe` to fail. We create a source tag on main to work around this.
+      - name: Create source tag for git describe
+        run: |
+          VERSION="${{ steps.version.outputs.current }}"
+          TAG="v${VERSION}-src"
+
+          # Find the commit that bumped to this version on main
+          # Uses extended regex to match "0.1.1" or "0.1.1 (#123)" formats
+          # --first-parent ensures we only search mainline commits
+          COMMIT=$(git log --first-parent -E --grep="^${VERSION}( |$)" --format="%H" main | head -1)
+
+          if [ -z "$COMMIT" ]; then
+            echo "::warning::Could not find version bump commit for ${VERSION}"
+            exit 0
+          fi
+
+          # Check if source tag already exists
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Source tag $TAG already exists"
+            exit 0
+          fi
+
+          echo "Creating source tag $TAG on commit $COMMIT"
+          git tag "$TAG" "$COMMIT"
+          git push origin "$TAG"
+
+      - name: Prepare release
+        uses: getsentry/action-prepare-release@v1
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+        with:
+          version: ${{ steps.version.outputs.new }}
+          force: ${{ inputs.force }}

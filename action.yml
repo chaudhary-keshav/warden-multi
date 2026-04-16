@@ -1,0 +1,127 @@
+name: 'Warden'
+description: 'Multi-provider event-driven agent that analyzes GitHub PRs using Claude, GPT, or Gemini'
+author: 'Functional Software, Inc.'
+
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  provider:
+    description: 'LLM provider to use: claude, openai, or gemini (default: read from warden.toml, falls back to openai)'
+    required: false
+    default: ''
+  anthropic-api-key:
+    description: 'Anthropic API key (sk-ant-...) or OAuth token. Can also be set via ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN env vars.'
+    required: false
+  openai-api-key:
+    description: 'OpenAI API key. Can also be set via OPENAI_API_KEY env var.'
+    required: false
+  gemini-api-key:
+    description: 'Gemini API key. Can also be set via GEMINI_API_KEY env var.'
+    required: false
+  github-token:
+    description: 'GitHub token for API access (defaults to GITHUB_TOKEN)'
+    required: false
+    default: ${{ github.token }}
+  config-path:
+    description: 'Path to warden.toml config file (relative to repo root)'
+    required: false
+    default: 'warden.toml'
+  fail-on:
+    description: 'Minimum severity level to fail the action (off, critical, high, medium, low, info). Use "off" to never fail.'
+    required: false
+    default: 'high'
+  report-on:
+    description: 'Minimum severity level to show annotations in code review (off, critical, high, medium, low, info). Use "off" to disable reporting.'
+    required: false
+    default: 'medium'
+  max-findings:
+    description: 'Maximum number of findings to report (0 for unlimited)'
+    required: false
+    default: '50'
+  request-changes:
+    description: 'Whether to use REQUEST_CHANGES review event when findings exceed fail-on threshold'
+    required: false
+    default: 'false'
+  fail-check:
+    description: 'Whether to fail the check run when findings exceed fail-on threshold'
+    required: false
+    default: 'false'
+  parallel:
+    description: 'Maximum number of concurrent trigger executions'
+    required: false
+    default: '5'
+
+outputs:
+  findings-count:
+    description: 'Total number of findings'
+    value: ${{ steps.warden.outputs.findings-count }}
+  high-count:
+    description: 'Number of high severity findings'
+    value: ${{ steps.warden.outputs.high-count }}
+  summary:
+    description: 'Summary of the analysis'
+    value: ${{ steps.warden.outputs.summary }}
+  findings-file:
+    description: 'Path to structured JSON findings file (always written, use for upload to GCS/S3/etc.)'
+    value: ${{ steps.warden.outputs.findings-file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Detect provider
+      id: detect-provider
+      shell: bash
+      run: |
+        # Determine provider: explicit input > warden.toml > default (openai)
+        PROVIDER="${{ inputs.provider }}"
+        if [ -z "$PROVIDER" ]; then
+          CONFIG_PATH="${{ inputs.config-path }}"
+          if [ -f "$CONFIG_PATH" ]; then
+            PROVIDER=$(grep -A2 '^\[defaults\.provider\]' "$CONFIG_PATH" 2>/dev/null | grep 'name' | sed 's/.*=.*"\(.*\)"/\1/' | tr -d ' ' || echo "")
+          fi
+        fi
+        PROVIDER="${PROVIDER:-openai}"
+        echo "provider=$PROVIDER" >> "$GITHUB_OUTPUT"
+        echo "Using provider: $PROVIDER"
+
+    - name: Install Claude Code CLI
+      if: steps.detect-provider.outputs.provider == 'claude'
+      shell: bash
+      run: |
+        CLAUDE_CODE_VERSION="2.1.32"
+        echo "Installing Claude Code v${CLAUDE_CODE_VERSION}..."
+        for attempt in 1 2 3; do
+          echo "Installation attempt $attempt..."
+          if curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_CODE_VERSION"; then
+            break
+          fi
+          if [ $attempt -eq 3 ]; then
+            echo "Failed to install Claude Code after 3 attempts"
+            exit 1
+          fi
+          echo "Installation failed, retrying..."
+          sleep 5
+        done
+        echo "Claude Code installed successfully"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    - name: Run Warden
+      id: warden
+      shell: bash
+      env:
+        INPUT_PROVIDER: ${{ steps.detect-provider.outputs.provider }}
+        INPUT_ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        INPUT_OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+        INPUT_GEMINI_API_KEY: ${{ inputs.gemini-api-key }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_CONFIG_PATH: ${{ inputs.config-path }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_REPORT_ON: ${{ inputs.report-on }}
+        INPUT_MAX_FINDINGS: ${{ inputs.max-findings }}
+        INPUT_REQUEST_CHANGES: ${{ inputs.request-changes }}
+        INPUT_FAIL_CHECK: ${{ inputs.fail-check }}
+        INPUT_PARALLEL: ${{ inputs.parallel }}
+        CLAUDE_CODE_PATH: ${{ env.HOME }}/.local/bin/claude
+      run: node ${{ github.action_path }}/dist/action/index.js

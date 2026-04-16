@@ -1,0 +1,25 @@
+version = 1
+
+[defaults]
+# Fail check on high+ severity findings (critical, high)
+failOn = "high"
+# Show annotations for medium+ severity findings
+reportOn = "medium"
+# Exclude build output from all skills
+ignorePaths = ["dist/**", "evals/**"]
+
+[[skills]]
+name = "find-warden-bugs"
+paths = ["src/**/*.ts"]
+ignorePaths = ["src/**/*.test.ts"]
+
+[[skills.triggers]]
+type = "pull_request"
+actions = ["opened", "synchronize", "reopened"]
+
+[[skills]]
+name = "code-simplifier"
+remote = "getsentry/sentry-skills"
+
+[[skills.triggers]]
+type = "local"

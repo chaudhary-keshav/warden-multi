@@ -1,0 +1,94 @@
+{
+  "name": "@sentry/warden-multi",
+  "version": "0.20.0",
+  "description": "Multi-provider event-driven agent — supports Claude, GPT, and Gemini for code review and analysis",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "warden": "dist/cli/index.js"
+  },
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "cli": "tsx src/cli/index.ts",
+    "build": "tsc",
+    "build:action": "ncc build src/action/main.ts -o dist/action --no-source-map-register --license licenses.txt",
+    "dev": "tsc --watch",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:examples": "vitest run --config vitest.integration.config.ts",
+    "test:evals": "vitest run --config vitest.evals.config.ts",
+    "typecheck": "tsc --noEmit",
+    "update-pricing": "tsx scripts/update-pricing.ts",
+    "docs": "pnpm --filter dex-docs dev",
+    "prepare": "simple-git-hooks"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm lint-staged && pnpm typecheck"
+  },
+  "lint-staged": {
+    "src/**/*.ts": [
+      "eslint --fix"
+    ],
+    "packages/docs/**/*.astro": [
+      "pnpm -C packages/docs build"
+    ]
+  },
+  "keywords": [
+    "github",
+    "automation",
+    "claude",
+    "ai",
+    "code-review",
+    "security"
+  ],
+  "author": "Sentry",
+  "license": "FSL-1.1-ALv2",
+  "repository": "https://github.com/getsentry/warden",
+  "bugs": {
+    "url": "https://github.com/getsentry/warden/issues"
+  },
+  "homepage": "https://warden.sentry.dev",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.22",
+    "@anthropic-ai/sdk": "^0.72.1",
+    "@inquirer/select": "^5.0.4",
+    "@octokit/rest": "^22.0.1",
+    "@sentry/node": "^10.38.0",
+    "chalk": "^5.6.2",
+    "dotenv": "^17.2.3",
+    "fast-glob": "^3.3.3",
+    "figures": "^6.1.0",
+    "ignore": "^7.0.5",
+    "ink": "^5.2.1",
+    "ink-spinner": "^5.0.0",
+    "nanoid": "^5.1.6",
+    "react": "^18.3.1",
+    "smol-toml": "^1.6.0",
+    "yaml": "^2.8.2",
+    "zod": "^4.3.6"
+  },
+  "optionalDependencies": {
+    "openai": "^5.8.2",
+    "@google/genai": "^1.5.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/node": "^25.0.10",
+    "@types/react": "^18.3.27",
+    "@vercel/ncc": "^0.38.4",
+    "eslint": "^9.39.2",
+    "ink-testing-library": "^4.0.0",
+    "lint-staged": "^16.2.7",
+    "simple-git-hooks": "^2.13.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.54.0",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

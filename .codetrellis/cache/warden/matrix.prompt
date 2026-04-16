@@ -1,0 +1,1151 @@
+[AI_INSTRUCTION]
+# You are receiving the complete project context for this codebase.
+# READ THIS ENTIRE FILE from top to bottom before responding.
+# This file contains: project structure, schemas, interfaces, API endpoints,
+# implementation logic, run/build/test commands, environment variables,
+# best practices, actionable items (TODOs/FIXMEs), and domain context.
+# USE this context to give accurate, project-specific answers.
+# FOLLOW the best practices listed in the BEST_PRACTICES section when suggesting code.
+# REFERENCE the RUNBOOK section for how to run, build, test, and deploy.
+# RESPECT the architectural patterns shown in PROJECT_STRUCTURE and OVERVIEW.
+# PRIORITIZE fixing items listed in ACTIONABLE_ITEMS when relevant.
+# DO NOT hallucinate file paths, function names, or APIs — only use what is listed here.
+# When writing code, match the project's language, framework, and style conventions.
+
+# CodeTrellis Matrix v1.3.0 [LOGIC] | warden | 2026-04-10
+
+[PROJECT]
+name=warden
+type=Monorepo
+stack=react
+
+[INFRASTRUCTURE]
+# Docker, Terraform, CI/CD pipeline definitions
+## CI/CD
+# github-actions: CI|trigger:push,pull_request
+  job:build|runs-on:ubuntu-latest|steps:11
+# github-actions: Release|trigger:workflow_dispatch
+  job:release|runs-on:ubuntu-latest|steps:7
+# github-actions: Update Major Version Tag|trigger:release
+  job:update-tag|runs-on:ubuntu-latest|steps:6
+# github-actions: Warden|trigger:pull_request
+  job:review|runs-on:ubuntu-latest|steps:8
+
+[INTERFACES]
+# 14 interfaces across 2 domains: sdk(10), fix-evaluation(4)
+  # --- sdk (10 interfaces) ---
+export|interface AuxiliaryUsageEntry|props:[agent:string,usage:UsageStats]
+export|interface HunkAnalysisResult|props:[findings:Finding[],usage:UsageStats,failed:boolean,extractionFailed:boolean,extractionError?:string,extractionPreview?:string,auxiliaryUsage?:AuxiliaryUsageEntry[]]
+export|interface SkillRunnerCallbacks|props:[skillStartTime?:number,onFileStart?:(file: string, index: number, total: number) =>...,onHunkStart?:(file: string, hunkNum: number, totalHunks: num...,onHunkComplete?:(file: string, hunkNum: number, findings: Findi...,onFileComplete?:(file: string, index: number, total: number) =>...,onLargePrompt?:(file: string, lineRange: string, chars: number...,onPromptSize?:(file: string, lineRange: string, systemChars: ...,onRetry?:(file: string, lineRange: string, attempt: numb...,onExtractionFailure?:(file: string, lineRange: string, error: string...,onExtractionResult?:(file: string, lineRange: string, findingsCount...,onHunkFailed?:(file: string, lineRange: string, error: string...]
+export|interface SkillRunnerOptions|props:[apiKey?:string,maxTurns?:number,contextLines?:number,parallel?:boolean,concurrency?:number,batchDelayMs?:number,model?:string,callbacks?:SkillRunnerCallbacks,abortController?:AbortController,pathToClaudeCodeExecutable?:string,retry?:RetryConfig,verbose?:boolean,maxContextFiles?:number,auxiliaryMaxRetries?:number]
+export|interface PreparedFile|props:[filename:string,hunks:HunkWithContext[]]
+export|interface PrepareFilesOptions|props:[contextLines?:number,chunking?:ChunkingConfig]
+export|interface PrepareFilesResult|props:[files:PreparedFile[],skippedFiles:SkippedFile[]]
+export|interface FileAnalysisCallbacks|props:[skillStartTime?:number,onHunkStart?:(hunkNum: number, totalHunks: number, lineRange...,onHunkComplete?:(hunkNum: number, findings: Finding[], usage: U...,onLargePrompt?:(lineRange: string, chars: number, estimatedTok...,onPromptSize?:(lineRange: string, systemChars: number, userCh...,onRetry?:(lineRange: string, attempt: number, maxRetries...,onExtractionFailure?:(lineRange: string, error: string, preview: str...,onExtractionResult?:(lineRange: string, findingsCount: number, meth...,onHunkFailed?:(lineRange: string, error: string) => void]
+export|interface FileAnalysisResult|props:[filename:string,findings:Finding[],usage:UsageStats,failedHunks:number,failedExtractions:number,auxiliaryUsage?:AuxiliaryUsageEntry[]]
+export|interface HunkAnalysisCallbacks|props:[lineRange:string,onLargePrompt?:(lineRange: string, chars: number, estimatedTok...,onPromptSize?:(lineRange: string, systemChars: number, userCh...,onRetry?:(lineRange: string, attempt: number, maxRetries...,onExtractionFailure?:(lineRange: string, error: string, preview: str...,onExtractionResult?:(lineRange: string, findingsCount: number, meth...,onHunkFailed?:(lineRange: string, error: string) => void]
+  # --- fix-evaluation (4 interfaces) ---
+export|interface FixJudgeResult|props:[verdict:FixJudgeVerdict,usage:UsageStats,usedFallback:boolean]
+export|interface FixEvaluation|props:[findingId?:string,skill?:string,path:string,line:number,title:string,verdict:FixStatus | 're_detected',reasoning?:string,durationMs:number,usage:UsageStats,usedFallback:boolean]
+export|interface EvaluateFixAttemptsResult|props:[toResolve:ExistingComment[],toReply:{ comment: ExistingComment; replyBody: string; ...,skipped:number,evaluated:number,failedEvaluations:number,uniqueFindingsEvaluated:number,uniqueFindingsCodeChanged:number,uniqueFindingsResolved:number,usage:UsageStats,evaluations:FixEvaluation[]]
+export|interface EvaluateFixAttemptsContext|props:[owner:string,repo:string,baseSha:string,headSha:string]
+
+[TYPES]
+export|type FixJudgeVerdict|kind:alias|def:
+export|type ToolName|kind:alias|def:
+export|type ToolConfig|kind:alias|def:
+export|type SkillDefinition|kind:alias|def:
+export|type ScheduleConfig|kind:alias|def:
+export|type TriggerType|kind:alias|def:
+export|type SkillTrigger|kind:alias|def:
+export|type SkillConfig|kind:alias|def:
+export|type RunnerConfig|kind:alias|def:
+export|type FilePattern|kind:alias|def:
+export|type CoalesceConfig|kind:alias|def:
+export|type ChunkingConfig|kind:alias|def:
+export|type Defaults|kind:alias|def:
+export|type LogCleanupMode|kind:alias|def:
+export|type LogsConfig|kind:alias|def:
+export|type WardenConfig|kind:alias|def:
+
+[CONTEXT]
+# Package: @sentry/warden@0.20.0 | desc:"Event-driven agent that reacts to GitHub events and executes skills via Claude Code SDK"
+# Key deps: @anthropic-ai/claude-agent-sdk:^0.2.22, @anthropic-ai/sdk:^0.72.1, @inquirer/select:^5.0.4, @octokit/rest:^22.0.1, @sentry/node:^10.38.0, chalk:^5.6.2, dotenv:^17.2.3, fast-glob:^3.3.3
+# TypeScript: target:ES2022, strict
+# README: warden
+# Description: Your code is under new management. Agents that review your code - locally or on every PR - using the Skills you already know and love.
+
+[ERROR_HANDLING]
+# judge.ts (1 try-catch)
+# index.ts (1 try-catch)
+# index.ts (1 http)
+# loader.ts (1 try-catch, 1 classes)
+# github-issues.ts (3 try-catch)
+# dedup.ts (1 try-catch)
+# stale.ts (2 try-catch)
+# main.ts (6 try-catch)
+# input.ts (1 classes)
+# fix.ts (5 try-catch)
+# analyze.ts (3 try-catch)
+# extract.ts (1 try-catch)
+# errors.ts (2 classes)
+# haiku.ts (3 try-catch)
+# auth.ts (1 try-catch)
+
+[TODOS]
+# Summary: 5 TODOs in 4 files (0 high priority)
+# By type: NOTE:5
+
+# fix.ts (2 todos, 0 high)
+# analyze.ts (1 todos, 0 high)
+# remote.ts (1 todos, 0 high)
+# pr-workflow.ts (1 todos, 0 high)
+
+[ACTIONABLE_ITEMS]
+# 5 actionable items (5 TODO)
+TODO|fix.ts:NOTE:line 47|location is guaranteed non-null by the filter above|NORMAL
+TODO|fix.ts:NOTE:line 150|location is guaranteed non-null by collectFixableFindings|NORMAL
+TODO|analyze.ts:NOTE:line 747|chunking config should come from the caller (e.g., from warden.toml defaults)|NORMAL
+TODO|remote.ts:NOTE:line 368|'--' separates flags from positional args to prevent flag injection|NORMAL
+TODO|pr-workflow.ts:NOTE:line 189|No pagination. PRs with 100+ reviews are rare; if Warden's review|NORMAL
+
+[PROGRESS]
+completion:74%|placeholders:13
+
+[OVERVIEW]
+name:@sentry/warden|type:Monorepo|stack:Monorepo
+entry:index.ts
+dirs:cli(30),action(16),sdk(14),output(8),diff(6),evals(5)
+patterns:repository-pattern
+deps:react
+scripts:cli,build,build:action,dev,lint
+
+[RUNBOOK]
+# Commands
+dev=tsc --watch
+dev=astro dev
+build=tsc
+build:action=ncc build src/action/main.ts -o dist/action --no-source-map-register --licens...
+build=astro build
+test=vitest run
+test:watch=vitest
+test:examples=vitest run --config vitest.integration.config.ts
+test:evals=vitest run --config vitest.evals.config.ts
+lint=eslint src
+lint:fix=eslint src --fix
+typecheck=tsc --noEmit
+cli=tsx src/cli/index.ts
+update-pricing=tsx scripts/update-pricing.ts
+docs=pnpm --filter dex-docs dev
+prepare=simple-git-hooks
+preview=astro preview
+# CI/CD
+ci:github-actions|triggers:workflow_dispatch|jobs:release
+ci:github-actions|triggers:release|jobs:update-tag
+ci:github-actions|triggers:pull_request|jobs:review
+ci:github-actions|triggers:push|jobs:build
+# Environment
+  ANTHROPIC_API_KEY ← Used in src/evals/evals.integration.test.ts
+  CLAUDE_CODE_OAUTH_TOKEN ← Used in src/action/inputs.ts
+  CLAUDE_CODE_PATH ← Used in src/action/workflow/base.ts
+  FORCE_COLOR ← Used in src/cli/output/tty.test.ts
+  GITHUB_EVENT_NAME ← Used in src/action/main.ts
+  GITHUB_EVENT_PATH ← Used in src/action/main.ts
+  GITHUB_OUTPUT ← Used in src/action/workflow/base.ts
+  GITHUB_REPOSITORY ← Used in src/action/workflow/schedule.test.ts
+  GITHUB_RUN_ID ← Used in src/action/workflow/base.ts
+  GITHUB_SHA ← Used in src/action/workflow/schedule.test.ts
+  GITHUB_TOKEN ← Used in src/action/inputs.ts
+  GITHUB_WORKSPACE ← Used in src/action/main.ts
+  HOME ← Used in src/action/workflow/base.ts
+  INPUT_FAIL_CHECK ← Used in src/action/inputs.test.ts
+  INPUT_MAX_FINDINGS ← Used in src/action/inputs.test.ts
+  INPUT_PARALLEL ← Used in src/action/inputs.test.ts
+  INPUT_REQUEST_CHANGES ← Used in src/action/inputs.test.ts
+  NO_COLOR ← Used in src/cli/output/tty.test.ts
+  RUNNER_TEMP ← Used in src/action/workflow/base.ts
+  TERM ← Used in src/cli/output/tty.test.ts
+  WARDEN_ANTHROPIC_API_KEY ← Used in src/evals/evals.integration.test.ts
+  WARDEN_MODEL ← Used in src/config/loader.ts
+  WARDEN_SENTRY_DSN ← Used in src/sentry.ts
+  WARDEN_SKILL_CACHE_TTL ← Used in src/skills/remote.test.ts
+  WARDEN_STATE_DIR ← Used in src/skills/remote.test.ts
+# Contributing
+  guide:CONTRIBUTING.md
+  - Node.js >= 20.0.0
+  - pnpm (install via `npm install -g pnpm`)
+  - An Anthropic API key for running skills
+  req:## Prerequisites
+  req:- pnpm (install via `npm install -g pnpm`)
+  req:pnpm install
+# Version Requirements
+  node:>=20.0.0
+# License: # Functional Source License, Version 1.1, ALv2 Future License
+
+[BUSINESS_DOMAIN]
+domain:Version Control/SCM
+purpose:A version control and source code management platform providing Git repository hosting, pull requests, code review, issue tracking, CI/CD integration, and collaboration features. Supports self-hosted deployment with web UI and API access.
+supporting-entities:AuxiliaryUsageEntry,EvaluateFixAttemptsContext,EvaluateFixAttemptsResult,FileAnalysisCallbacks,FileAnalysisResult,FixEvaluation,FixJudgeResult,HunkAnalysisCallbacks,HunkAnalysisResult,PrepareFilesResult,PreparedFile,SkillRunnerCallbacks
+  EvaluateFixAttemptsResult|relations:FixEvaluation
+  FileAnalysisResult|relations:AuxiliaryUsageEntry
+  HunkAnalysisResult|relations:AuxiliaryUsageEntry
+  PrepareFilesResult|relations:PreparedFile
+
+[DATA_FLOWS]
+primary-pattern:Request-Response
+
+[CSS_SELECTORS]
+# Features: custom_properties
+  global.css|selectors=100|attribute:2,class:1,combined:37,complex:2,element:33,id:2,pseudo_class:23
+  # Total: 100 selectors, 0 nested
+
+[CSS_VARIABLES]
+  # color (10)
+    --bg=#000000
+    --bg-elevated=#111111
+    --bg-subtle=#0a0a0a
+    --text=#fafafa
+    --text-secondary=#888888
+    --text-tertiary=#555555
+    --link=#3b9eff
+    --link-hover=#6bb3ff
+    # ... and 2 more
+  # sizing (2)
+    --radius=8px
+    --radius-lg=12px
+  # typography (2)
+    --font-mono='Geist Mono', monospace
+    --font-sans=-apple-system, BlinkMacSystemF
+
+[JS_DEPENDENCIES]
+# ES6/CommonJS imports, exports, JSDoc, decorators, dynamic imports
+# es6 imports (6)
+  eslint from '@eslint/js'|eslint.config.js
+  tseslint from 'typescript-eslint'|eslint.config.js
+  {defineConfig,fontProviders} from 'astro/config'|astro.config.mjs
+  mdx from '@astrojs/mdx'|astro.config.mjs
+  rehypeAutolinkHeadings from 'rehype-autolink-headings'|astro.config.mjs
+  rehypeSlug from 'rehype-slug'|astro.config.mjs
+# default exports (2)
+  export tseslint|eslint.config.js
+  export defineConfig|astro.config.mjs
+# Detected: vite
+# JavaScript version: ES2020
+# Module system: esm
+# Module system: esm
+
+[TS_TYPES]
+# Classes, interfaces, type aliases, enums, generics
+# Interfaces (82)
+  interface PriceEntry|props:[input_mtok?:PriceValue,output_mtok?:PriceValue,cache_read_mtok?:PriceValue,cache_write_mtok?:PriceValue]|update-pricing.ts
+  interface ModelEntry|props:[id:string,name:string,prices:PriceEntry]|update-pricing.ts
+  interface ProviderEntry|props:[id:string,models:ModelEntry[]]|update-pricing.ts
+  interface ModelPricingRecord|props:[inputPerMTok:number,outputPerMTok:number,cacheReadPerMTok:number,cacheWritePerMTok:number]|update-pricing.ts
+  interface ActionInputs|export|props:[anthropicApiKey:string,oauthToken:string,githubToken:string,configPath:string,failOn?:SeverityThreshold]|inputs.ts
+  interface GitHubReviewInfo|export|props:[id:number,state:string,user?:{ login: string } | null]|review-state.ts
+  interface BotReviewInfo|export|props:[state:ReviewState,reviewId:number]|review-state.ts
+  interface FollowUpChanges|export|props:[patches:Map<string, string>,commitMessages:string[]]|github.ts
+  interface FixJudgeInput|export|props:[comment:ExistingComment,changedFiles:string[],codeBeforeFix:string,codeAfterFix?:string,commitMessages?:string[]]|judge.ts
+  interface FixJudgeContext|export|props:[octokit:Octokit,owner:string,repo:string,baseSha:string,headSha:string]|judge.ts
+  interface FixJudgeResult|export|props:[verdict:FixJudgeVerdict,usage:UsageStats,usedFallback:boolean]|types.ts
+  interface FixEvaluation|export|props:[findingId?:string,skill?:string,path:string,line:number,title:string]|types.ts
+  interface EvaluateFixAttemptsResult|export|props:[toResolve:ExistingComment[],toReply:{ comment: ExistingComment; replyBody: string; commitSha: string }[],skipped:number,evaluated:number,failedEvaluations:number]|types.ts
+  interface EvaluateFixAttemptsContext|export|props:[owner:string,repo:string,baseSha:string,headSha:string]|types.ts
+  interface TriggerExecutionResult|export|props:[triggerName:string,report?:SkillReport,renderResult?:RenderResult,error?:unknown]|coordination.ts
+  interface ReviewPostingContext|export|props:[result:TriggerResult,existingComments:ExistingComment[],apiKey:string,maxRetries?:number]|poster.ts
+  interface ReviewPostResult|export|props:[posted:boolean,newComments:ExistingComment[],shouldFail:boolean,failureReason?:string]|poster.ts
+  interface ReviewPosterDeps|export|props:[octokit:Octokit,context:EventContext]|poster.ts
+  interface TriggerExecutorDeps|export|props:[octokit:Octokit,context:EventContext,config:WardenConfig,anthropicApiKey:string,claudePath:string]|executor.ts
+  interface TriggerResult|export|props:[triggerName:string,report?:SkillReport,renderResult?:RenderResult,failOn?:SeverityThreshold,reportOn?:SeverityThreshold]|executor.ts
+  interface InitResult|props:[context:EventContext,config:WardenConfig,matchedTriggers:ResolvedTrigger[]]|pr-workflow.ts
+  interface GitHubSetupResult|props:[coreCheckId?:number,previousReviewInfo:BotReviewInfo | null]|pr-workflow.ts
+  interface ReviewPhaseResult|props:[reports:SkillReport[],fetchedComments:ExistingComment[],existingComments:ExistingComment[],shouldFailAction:boolean,failureReasons:string[]]|pr-workflow.ts
+  interface SetupAppOptions|export|props:[org?:string,port:number,timeout:number,name?:string,open:boolean]|args.ts
+  interface LogsOptions|export|props:[subcommand:LogsSubcommand,files:string[]]|args.ts
+  interface ParsedArgs|export|props:[command:'run' | 'help' | 'init' | 'add' | 'version' | 'setup-app' | 'sync' | 'logs',options:CLIOptions,setupAppOptions?:SetupAppOptions,logsOptions?:LogsOptions]|args.ts
+  interface DetectTargetTypeOptions|export|props:[cwd?:string,forceGit?:boolean]|args.ts
+  interface LocalContextOptions|export|props:[base?:string,head?:string,cwd?:string,defaultBranch?:string,staged?:boolean]|context.ts
+  interface FileContextOptions|export|props:[patterns:string[],cwd?:string]|context.ts
+  interface ExpandGlobOptions|export|props:[cwd?:string,gitignore?:boolean]|files.ts
+  interface FixResult|export|props:[success:boolean,finding:Finding,error?:string]|fix.ts
+  interface FixSummary|export|props:[applied:number,skipped:number,failed:number,results:FixResult[]]|fix.ts
+  interface GitFileChange|export|props:[filename:string,status:'added' | 'removed' | 'modified' | 'renamed' | 'copied',additions:number,deletions:number,patch?:string]|git.ts
+  interface DiffOptions|export|props:[staged?:boolean]|git.ts
+  interface CommitMessage|export|props:[subject:string,body:string]|git.ts
+  interface SkillToRun|props:[skill:string,remote?:string,filters:{ paths?: string[]; ignorePaths?: string[] }]|main.ts
+  interface ProcessedResults|props:[reports:SkillReport[],filteredReports:SkillReport[],hasFailure:boolean,failureReasons:string[]]|main.ts
+  interface RenderOptions|props:[suppressFixDiffs?:boolean,verbosity?:Verbosity]|terminal.ts
+  interface Row|props:[runId:string,date:string,files:string,findings:string,time:string]|logs.ts
+  interface AppCredentials|export|props:[id:number,name:string,pem:string,htmlUrl:string]|credentials.ts
+  # ... and 42 more interfaces
+# union types (5)
+  type PriceValue = number | { base: number|update-pricing.ts
+  type SentryContext|export = 'cli' | 'action'|sentry.ts
+  type LogsSubcommand|export = 'list' | 'show' | 'gc'|args.ts
+  type FixAction = 'y' | 'n' | 'a' | 's'|fix.ts
+  type FileMode|export = 'per-hunk' | 'whole-file' | 'skip'|classify.ts
+# alias types (51)
+  type FixJudgeVerdict|export = z.infer<typeof FixJudgeVerdictSchema>|types.ts
+  type CLIOptions|export = z.infer<typeof CLIOptionsSchema>|args.ts
+  type FileLineResult = | { status: 'ok'|terminal.ts
+  type ToolName|export = z.infer<typeof ToolNameSchema>|schema.ts
+  type ToolConfig|export = z.infer<typeof ToolConfigSchema>|schema.ts
+  type SkillDefinition|export = z.infer<typeof SkillDefinitionSchema>|schema.ts
+  type ScheduleConfig|export = z.infer<typeof ScheduleConfigSchema>|schema.ts
+  type TriggerType|export = z.infer<typeof TriggerTypeSchema>|schema.ts
+  type SkillTrigger|export = z.infer<typeof SkillTriggerSchema>|schema.ts
+  type SkillConfig|export = z.infer<typeof SkillConfigSchema>|schema.ts
+  type RunnerConfig|export = z.infer<typeof RunnerConfigSchema>|schema.ts
+  type FilePattern|export = z.infer<typeof FilePatternSchema>|schema.ts
+  type CoalesceConfig|export = z.infer<typeof CoalesceConfigSchema>|schema.ts
+  type ChunkingConfig|export = z.infer<typeof ChunkingConfigSchema>|schema.ts
+  type Defaults|export = z.infer<typeof DefaultsSchema>|schema.ts
+  type LogCleanupMode|export = z.infer<typeof LogCleanupModeSchema>|schema.ts
+  type LogsConfig|export = z.infer<typeof LogsConfigSchema>|schema.ts
+  type WardenConfig|export = z.infer<typeof WardenConfigSchema>|schema.ts
+  type ShouldFind|export = z.infer<typeof ShouldFindSchema>|types.ts
+  type EvalScenario|export = z.infer<typeof EvalScenarioSchema>|types.ts
+  # ... and 31 more alias types
+
+[TS_MODELS]
+# TypeORM/MikroORM/Prisma/Drizzle models, DTOs, migrations, relationships
+# DTOs (13)
+  FixJudgeVerdictSchema|zod|types.ts
+  ToolConfigSchema|zod|schema.ts
+  SkillDefinitionSchema|zod|schema.ts
+  ScheduleConfigSchema|zod|schema.ts
+  SkillTriggerSchema|zod|schema.ts
+  SkillConfigSchema|zod|schema.ts
+  RunnerConfigSchema|zod|schema.ts
+  FilePatternSchema|zod|schema.ts
+  CoalesceConfigSchema|zod|schema.ts
+  ChunkingConfigSchema|zod|schema.ts
+  DefaultsSchema|zod|schema.ts
+  LogsConfigSchema|zod|schema.ts
+  WardenConfigSchema|zod|schema.ts
+
+[TS_DEPENDENCIES]
+# Type-only imports, exports, decorators, namespaces, triple-slash, TSDoc
+# es6 imports (11)
+  import {defineConfig} from 'vitest/config'|vitest.config.ts
+  import {defineConfig} from 'vitest/config'|vitest.evals.config.ts
+  import {defineConfig} from 'vitest/config'|vitest.integration.config.ts
+  import {createRequire} from 'node:module'|version.ts
+  import {z} from 'zod'|types.ts
+  import {FixStatusSchema} from '../../types/index.js'|types.ts
+  import {initSentry,Sentry,flushSentry} from '../sentry.js'|index.ts
+  import {main,abortController,interrupted} from './main.js'|index.ts
+  import {UserAbortError} from './input.js'|index.ts
+  import {z} from 'zod'|schema.ts
+  import {SeverityThresholdSchema,ConfidenceThresholdSchema} from '../types/index.js'|schema.ts
+# type_only imports (5)
+  import type {FixStatus,UsageStats} from '../../types/index.js'|types.ts
+  import type {ExistingComment} from '../../output/dedup.js'|types.ts
+  import type {Finding,UsageStats,SkippedFile,RetryConfig} from '../types/index.js'|types.ts
+  import type {HunkWithContext} from '../diff/index.js'|types.ts
+  import type {ChunkingConfig} from '../config/schema.js'|types.ts
+# default exports (3)
+  export defineConfig|vitest.config.ts
+  export defineConfig|vitest.evals.config.ts
+  export defineConfig|vitest.integration.config.ts
+# named exports (50)
+  export MAJOR_VERSION|const|version.ts
+  export WARDEN_ACTION|const|version.ts
+  export FixJudgeVerdictSchema|const|types.ts
+  export FixJudgeVerdict|type|types.ts
+  export FixJudgeResult|interface|types.ts
+  export FixEvaluation|interface|types.ts
+  export EvaluateFixAttemptsResult|interface|types.ts
+  export EvaluateFixAttemptsContext|interface|types.ts
+  export ToolNameSchema|const|schema.ts
+  export ToolName|type|schema.ts
+  export ToolConfigSchema|const|schema.ts
+  export ToolConfig|type|schema.ts
+  export SkillDefinitionSchema|const|schema.ts
+  export SkillDefinition|type|schema.ts
+  export ScheduleConfigSchema|const|schema.ts
+  export ScheduleConfig|type|schema.ts
+  export TriggerTypeSchema|const|schema.ts
+  export TriggerType|type|schema.ts
+  export SkillTriggerSchema|const|schema.ts
+  export SkillTrigger|type|schema.ts
+  export SkillConfigSchema|const|schema.ts
+  export SkillConfig|type|schema.ts
+  export RunnerConfigSchema|const|schema.ts
+  export RunnerConfig|type|schema.ts
+  export FilePatternSchema|const|schema.ts
+# type_only exports (56)
+  export type Severity|type from './types/index.js'|index.ts
+  export type ConfidenceThreshold|type from './types/index.js'|index.ts
+  export type Location|type from './types/index.js'|index.ts
+  export type SuggestedFix|type from './types/index.js'|index.ts
+  export type Finding|type from './types/index.js'|index.ts
+  export type FileReport|type from './types/index.js'|index.ts
+  export type SkillReport|type from './types/index.js'|index.ts
+  export type GitHubEventType|type from './types/index.js'|index.ts
+  export type PullRequestAction|type from './types/index.js'|index.ts
+  export type FileChange|type from './types/index.js'|index.ts
+  export type PullRequestContext|type from './types/index.js'|index.ts
+  export type RepositoryContext|type from './types/index.js'|index.ts
+  export type EventContext|type from './types/index.js'|index.ts
+  export type SkillDefinition|type from './config/index.js'|index.ts
+  export type SkillConfig|type from './config/index.js'|index.ts
+  export type SkillTrigger|type from './config/index.js'|index.ts
+  export type TriggerType|type from './config/index.js'|index.ts
+  export type WardenConfig|type from './config/index.js'|index.ts
+  export type ResolvedTrigger|type from './config/index.js'|index.ts
+  export type SkillRunnerOptions|type from './sdk/runner.js'|index.ts
+  export type SkillRunnerCallbacks|type from './sdk/runner.js'|index.ts
+  export type AgentDefinition|type from './skills/index.js'|index.ts
+  export type RenderResult|type from './output/types.js'|index.ts
+  export type RenderOptions|type from './output/types.js'|index.ts
+  export type GitHubReview|type from './output/types.js'|index.ts
+# re_export exports (118)
+  export // Severity
+  SeveritySchema from './types/index.js'|index.ts
+  export SEVERITY_ORDER from './types/index.js'|index.ts
+  export // Confidence
+  ConfidenceThresholdSchema from './types/index.js'|index.ts
+  export CONFIDENCE_ORDER from './types/index.js'|index.ts
+  export filterFindingsByConfidence from './types/index.js'|index.ts
+  export filterFindings from './types/index.js'|index.ts
+  export // Location
+  LocationSchema from './types/index.js'|index.ts
+  export // Suggested Fix
+  SuggestedFixSchema from './types/index.js'|index.ts
+  export // Finding
+  FindingSchema from './types/index.js'|index.ts
+  export // File Report (per-file breakdown within a skill)
+  FileReportSchema from './types/index.js'|index.ts
+  export // Skill Report
+  SkillReportSchema from './types/index.js'|index.ts
+  export // GitHub Events
+  GitHubEventTypeSchema from './types/index.js'|index.ts
+  export PullRequestActionSchema from './types/index.js'|index.ts
+  export // File Changes
+  FileChangeSchema from './types/index.js'|index.ts
+  export // Context
+  PullRequestContextSchema from './types/index.js'|index.ts
+  export RepositoryContextSchema from './types/index.js'|index.ts
+  export EventContextSchema from './types/index.js'|index.ts
+  export // Schemas
+  SkillDefinitionSchema from './config/index.js'|index.ts
+  export SkillConfigSchema from './config/index.js'|index.ts
+  export SkillTriggerSchema from './config/index.js'|index.ts
+  export TriggerTypeSchema from './config/index.js'|index.ts
+  export WardenConfigSchema from './config/index.js'|index.ts
+  export // Functions
+  loadWardenConfig from './config/index.js'|index.ts
+  export resolveSkillConfigs from './config/index.js'|index.ts
+  export // Errors
+  ConfigLoadError from './config/index.js'|index.ts
+# TSDoc (110 blocks)
+  @dist|', '*|vitest.config.ts
+  @|', '*|vitest.config.ts
+  @node_modules|/*.integration.test.ts'], exclude: ['*|vitest.evals.config.ts
+  @dist|', '*|vitest.evals.config.ts
+  @dist|', '*|vitest.integration.config.ts
+  @FixEvaluation|Per-comment evaluation detail for structured repor...|types.ts
+  @toResolve|Comments where fix was successful and should be re...|types.ts
+  @toReply|Comments where fix failed and need a reply|types.ts
+  @skipped|Comments not evaluated (no patches, or over limit)|types.ts
+  @evaluated|Comments sent to LLM for evaluation|types.ts
+  @failedEvaluations|Evaluations that failed and used fallback (API err...|types.ts
+  @uniqueFindingsEvaluated|Unique finding threads evaluated in this run|types.ts
+  @uniqueFindingsCodeChanged|Unique finding threads with evidence of code-chang...|types.ts
+  @uniqueFindingsResolved|Unique finding threads judged resolved|types.ts
+  @usage|Accumulated usage stats from all fix evaluations|types.ts
+  # ... and 95 more TSDoc blocks
+# Detected: vite, jest, rxjs, remix, koa, webpack, mobx, ngrx, fp_ts, zod, valibot, passport, io_ts, testing_library, esbuild
+# TypeScript version: 2.0
+
+[ZUSTAND_STORES]
+# create, createStore, createWithEqualityFn, slices, context stores, persist
+# Version: v4
+
+[ZUSTAND_API]
+# Imports, integrations (React Query, Next.js, SSR), TypeScript types
+# Features: create_store, slice_pattern
+
+[APOLLO_QUERIES]
+# useQuery, useLazyQuery, useSuspenseQuery, useBackgroundQuery, useReadQuery, gql tags
+# Features: split_link
+
+[ASTRO_COMPONENTS]
+# .astro components, props, slots, directives, scoped/global styles
+# Components (13)
+  Code|[props:3,scoped,exprs:15]|Code.astro:0
+  DocsPageShell|[slots:3,scoped,global,exprs:3]|DocsPageShell.astro:0
+  DocsToc|[props:1,scoped,global,class:list,ViewTransitions,exprs:74]|DocsToc.astro:0
+  HeroFlow|[scoped,exprs:267]|HeroFlow.astro:0
+  PackageManagerTabs|[props:3,scoped,set:html,exprs:20]|PackageManagerTabs.astro:0
+  Terminal|[props:3,slots:1,scoped,exprs:20]|Terminal.astro:0
+  Base|[props:2,slots:1,scoped,global,class:list,ViewTransitions,exprs:79]|Base.astro:0
+  cli|[scoped,global,ViewTransitions,Fragment,exprs:5]|cli.astro:0
+  config|[ViewTransitions,Fragment,exprs:19]|config.astro:0
+  github-org-setup|[exprs:4]|github-org-setup.astro:0
+  guide|[scoped,ViewTransitions,Fragment,exprs:40]|guide.astro:0
+  index|[scoped,exprs:67]|index.astro:0
+  skill|[ViewTransitions,Fragment,exprs:6]|skill.astro:0
+# Frontmatter (17 files, 5 TypeScript, 0 getStaticPaths)
+  vitest.config.ts|[imports:1]
+  vitest.evals.config.ts|[imports:1]
+  vitest.integration.config.ts|[imports:1]
+  astro.config.mjs
+  Code.astro|[ts]
+  DocsPageShell.astro
+  DocsToc.astro|[ts]
+  HeroFlow.astro|[vars:3]
+  PackageManagerTabs.astro|[ts]
+  Terminal.astro|[ts]
+  Base.astro|[ts,imports:2,vars:8]
+  cli.astro|[imports:5,vars:1]
+  config.astro|[imports:6,vars:2]
+  github-org-setup.astro|[imports:4]
+  guide.astro|[imports:6,vars:2]
+  index.astro|[imports:5,vars:2]
+  skill.astro|[imports:6,vars:2]
+# Version: v3
+# Frameworks: astro, astro-config, astro-mdx, astro-assets, astro-transitions
+# Features: mdx, frontmatter, astro_props, view_transitions, scoped_style, set_text, scoped_styles, astro_slots, global_style, slots, global_styles, class_list, set_html, astro_url, image_optimization
+
+[ASTRO_ISLANDS]
+# Partial hydration islands, client:* directives, framework components
+# has_view_transitions: true
+
+[ASTRO_ROUTING]
+# File-based routes, API endpoints, middleware, dynamic params
+# Routes (6)
+  /cli|cli.astro
+  /config|config.astro
+  /github-org-setup|github-org-setup.astro
+  /guide|guide.astro
+  /|index.astro
+  /skill|skill.astro
+
+[ASTRO_API]
+# Integrations, astro.config, virtual modules, TypeScript types, version
+# Imports (49 from 15 sources, 16 virtual)
+  vitest/config|names:[defineConfig]|files:3
+  astro/config|names:[defineConfig,fontProviders]|files:1
+  @astrojs/mdx|names:[mdx]|files:1
+  rehype-autolink-headings|names:[rehypeAutolinkHeadings]|files:1
+  rehype-slug|names:[rehypeSlug]|files:1
+  astro:assets|names:[Font]|virtual|files:2
+  astro:transitions|names:[ClientRouter,fade]|virtual|files:2
+  astro:components|names:[Code]|virtual|files:12
+  ../layouts/Base.astro|names:[Base]|files:6
+  ../components/DocsPageShell.astro|names:[DocsPageShell]|files:4
+  ../components/DocsToc.astro|names:[DocsToc]|files:4
+  ../components/Terminal.astro|names:[Terminal]|files:6
+  ../utils/version.js|names:[WARDEN_ACTION]|files:3
+  ../components/PackageManagerTabs.astro|names:[PackageManagerTabs]|files:2
+  ../components/HeroFlow.astro|names:[HeroFlow]|files:1
+# Integrations (1)
+  [content] mdx
+# Config: astro.config.mjs|[experimental:[],markdown]
+
+[NEXT_PAGES]
+# App Router pages/layouts/loading/error/template, Pages Router pages
+# Ecosystem: vercel
+# Min Next.js version: 12.0
+
+[LIFECYCLE]
+  # start (2)
+    main(|main.ts
+    main(|index.ts
+
+[IMPLEMENTATION_LOGIC]
+# Shows WHAT code does: control flow, API calls, data transforms
+# SMART_TRUNCATION: 540 total → 500 selected (monorepo optimization, G-18)
+# main.ts (13 functions, 6 complex)
+  runConfigMode|function runConfigMode(options, reporter): Prom...|flow:[if×12,else×5,for×3,try×2] | api:[GET] | transforms:[filter,map,await] | return 1 | return 1|[complex]
+  runSkills|function runSkills(context, options, reporter):...|flow:[if×11,else×5,for×5,try×3] | transforms:[filter,find,map,await] | return 1 | return false|[complex]
+  outputResultsAndHandleFixes|function outputResultsAndHandleFixes(...8 param...|flow:[if×13,else×3,for×2,try×3] | transforms:[await] | return 130 | return 1|[complex]
+  main|function main(): Promise<void>|flow:[if×8,for,switch,try×4] | transforms:[await] | return runInit(options, rep... | return runAdd(options, repo...|[complex]
+  runGitRefMode|function runGitRefMode(gitRef, options, reporte...|flow:[if×7,else,try,catch] | return 1 | return 1|[complex]
+  # ... and 8 more functions
+
+# analyze.ts (12 functions, 6 complex)
+  analyzeHunk|function analyzeHunk(...6 params): Promise<Hunk...|flow:[if×25,else×3,for×6,try×2] | transforms:[await,map] | return Sentry.startSpan(
+  ... | return { findings: [], usag...|[complex]
+  runSkill|function runSkill(skill, context, options): Pro...|flow:[if×17,else,for×9,throw×2] | transforms:[reduce,map,await] | return report | return result|[complex]
+  executeQuery|function executeQuery(...5 params): Promise<Que...|flow:[if×15,else×3,for×5,try×2] | api:[GET] | transforms:[filter,map,Object.keys,await] | return Sentry.startSpan(
+  ... | return { result: resultMess...|[complex]
+  analyzeFile|function analyzeFile(...6 params): Promise<File...|flow:[if×4,for] | transforms:[await] | return Sentry.startSpan(
+  ... | return {
+        filename: ...|[complex]
+  processFile|function processFile(fileHunkEntry, fileIndex):...|transforms:[await] | return result | result = await analyzeFile(...|[complex]
+  # ... and 7 more functions
+
+# dedup.ts (15 functions, 5 complex)
+  deduplicateFindings|function deduplicateFindings(findings, existing...|flow:[if×11,else×2,for×6] | api:[GET] | transforms:[await] | return { newFindings: findi... | return { newFindings: hashD...|[complex]
+  consolidateBatchFindings|function consolidateBatchFindings(findings, opt...|flow:[if×9,for×2] | api:[GET] | transforms:[filter,map,await] | return { findings, removedC... | return hash-deduped results...|[complex]
+  fetchExistingComments|function fetchExistingComments(...4 params): Pr...|flow:[if×2,for×3,while] | transforms:[await] | return comments | return comments|[complex]
+  findSemanticDuplicates|function findSemanticDuplicates(...4 params): P...|flow:[if×5,for] | transforms:[await,map] | return { matches: new Map() } | return `${i + 1}. [${loc}] ...|[complex]
+  updateWardenCommentBody|function updateWardenCommentBody(body, newSkill...|flow:[if×10] | transforms:[map] | return null | return null|[complex]
+  # ... and 10 more functions
+
+# pr-workflow.ts (10 functions, 5 complex)
+  runPRWorkflow|function runPRWorkflow(...5 params): Promise<void>|flow:[if×4,try×2,catch×2] | transforms:[await] | return Sentry.startSpan(
+  ... | initResult = await Sentry.s...|[complex]
+  finalizeWorkflow|function finalizeWorkflow(...9 params): Promise...|flow:[if×5,for,try×3,catch×3] | transforms:[await] | return false | return shouldFail(filtered,...|[complex]
+  postReviewsAndTrackFailures|function postReviewsAndTrackFailures(...5 param...|flow:[if×5,for×7,try,catch] | transforms:[filter,await] | return { reports, fetchedCo... | wardenCount = fetchedCommen...|[complex]
+  initializeWorkflow|function initializeWorkflow(...5 params): Promi...|flow:[if×2,else,for×2,try×3] | transforms:[filter,await] | return null | return { context, config, m...|[complex]
+  cleanupOrphanedComments|function cleanupOrphanedComments(...4 params): ...|flow:[if×5,for,try×2,catch×2] | transforms:[filter,await] | wardenComments = existingCo... | activeSpan = Sentry.getActi...|[complex]
+  # ... and 5 more functions
+
+# remote.ts (20 functions, 4 complex)
+  fetchRemote|function fetchRemote(ref, options): Promise<str...|flow:[if×12,else×2,for×5,try×3] | return stateEntry.sha | return parsed.sha|[complex]
+  parseRemoteRef|function parseRemoteRef(ref): ParsedRemoteRef|flow:[if×14,else,for×2,throw×9] | return { owner, repo, sha, ... | inputRef = ref|[complex]
+  discoverMarketplaceSkills|function discoverMarketplaceSkills(remotePath, ...|flow:[if×6,for×2,try,catch] | transforms:[await] | return skills | seenNames = new Set<string>()|[complex]
+  discoverTraditional|function discoverTraditional(...4 params): Prom...|flow:[if×5,for×2,try,catch] | transforms:[await] | return results | seenNames = new Set<string>()|[complex]
+  loadState|function loadState(): RemoteState|flow:[if×2,try,catch] | return { remotes: {} } | return RemoteStateSchema.pa...|[moderate]
+  # ... and 15 more functions
+
+# tasks.ts (10 functions, 4 complex)
+  runSkillTask|function runSkillTask(...4 params): Promise<Ski...|flow:[if×22,else,for×6,while] | transforms:[filter,await,map,reduce] | return Sentry.startSpan(
+  ... | return {
+            name,
+...|[complex]
+  createDefaultCallbacks|function createDefaultCallbacks(tasks, mode, ve...|flow:[if×25,else×7,for×8] | api:[GET] | transforms:[find] | return tasks.find((t) => t.... | return {
+    onSkillStart: ...|[complex]
+  processFile|const processFile = (...) => {...}|flow:[if×7,else,for] | transforms:[await] | return {
+            findin... | filename = prepared.filename|[complex]
+  runSkillTasks|function runSkillTasks(tasks, options, callback...|flow:[if×5,for×2] | return runComposedSkillTask... | semaphore = new Semaphore(c...|[complex]
+  processSkippedFile|const processSkippedFile = (...) => {...}|flow:[if] | return { findings: [], dura... | localState = fileStates[index]|[moderate]
+  # ... and 5 more functions
+
+# judge.ts (6 functions, 3 complex)
+  buildPrompt|function buildPrompt(input): string|flow:[if×6,for] | transforms:[map] | return `# Task: Judge wheth... | afterCodeSection = codeAfte...|[complex]
+  runJudge|function runJudge(meta, findings, apiKey): Prom...|flow:[if×5,try,catch] | transforms:[await,find,map] | return a judge response mar... | return {
+      response: { ...|[complex]
+  buildJudgePrompt|function buildJudgePrompt(meta, findings): string|flow:[if×7,for×3] | transforms:[map] | return `  [${i}] severity=$... | return `  [${i}] ${e.findin...|[complex]
+  createToolExecutor|function createToolExecutor(ctx): (name: string...|flow:[if×6,for,try,catch] | api:[GET] | transforms:[await,map] | return async (name: string,... | return `Invalid input: ${pa...|[moderate]
+  evaluateFix|function evaluateFix(...4 params): Promise<FixJ...|flow:[if] | transforms:[await] | return { verdict: result.da... | return { ...fallback, usage...|[moderate]
+  # ... and 1 more functions
+
+# extract.ts (12 functions, 3 complex)
+  extractFindingsWithLLM|function extractFindingsWithLLM(rawText, apiKey...|flow:[if×5,while,try,catch] | transforms:[await] | return {
+      success: fal... | return {
+      success: fal...|[complex]
+  extractFindingsJson|function extractFindingsJson(rawText): ExtractF...|flow:[if×6,try,catch] | return {
+      success: fal... | return {
+      success: fal...|[complex]
+  mergeCrossLocationFindings|function mergeCrossLocationFindings(findings, o...|flow:[if×5,for] | api:[GET] | transforms:[filter,map,await] | return { findings, mergedCo... | return ''|[complex]
+  applyMergeGroups|function applyMergeGroups(indexedFindings, grou...|flow:[if×7,for×3] | api:[GET] | transforms:[filter,sort,map] | return { absorbed, replacem... | absorbed = new Set<Finding>()|[moderate]
+  extractBalancedJson|function extractBalancedJson(text, startIndex):...|flow:[if×7,for] | return text.slice(startInde... | return null|[moderate]
+  # ... and 7 more functions
+
+# jsonl.ts (9 functions, 3 complex)
+  renderJsonlString|function renderJsonlString(reports, durationMs,...|flow:[for] | transforms:[reduce,map] | return lines.join('\n') + '\n' | timestamp = (options?.times...|[complex]
+  parseLogMetadata|function parseLogMetadata(filePath): LogFileMet...|flow:[if×11,else,for×3,try×2] | return undefined | return { summary, skills, m...|[complex]
+  parseJsonlReports|function parseJsonlReports(content): ParsedJson...|flow:[if×3,for,try,catch] | transforms:[filter,map] | return { reports, runMetada... | lines = content.trim().spli...|[complex]
+  aggregateUsage|function aggregateUsage(reports): UsageStats | ...|flow:[if] | transforms:[filter,map,reduce] | return undefined | return usages.reduce((acc, ...
+  writeJsonlReport|function writeJsonlReport(...4 params): void|resolvedPath = resolve(proc... | content = renderJsonlString...
+  # ... and 4 more functions
+
+# loader.ts (16 functions, 2 complex)
+  resolveSkillConfigs|function resolveSkillConfigs(config, cliModel?)...|flow:[if,else,for×2] | return result | defaults = config.defaults|[complex]
+  loadSkillsFromDirectory|function loadSkillsFromDirectory(dirPath, optio...|flow:[if×4,for×3,try×3,catch×3] | api:[GET] | transforms:[await] | return cached | return skills|[complex]
+  loadWardenConfig|function loadWardenConfig(repoPath): WardenConfig|flow:[if×3,for,try×2,catch×2] | transforms:[map] | return Sentry.startSpan(
+  ... | return result.data|[moderate]
+  resolveEntry|function resolveEntry(...5 params): Promise<Ski...|flow:[if×7,for,throw×2] | transforms:[await] | return resolver(remote, nam... | return loadSkillFromMarkdow...|[moderate]
+  loadSkillFromMarkdown|function loadSkillFromMarkdown(filePath, option...|flow:[if×2,try,catch,throw×3] | transforms:[await] | return {
+    name: frontmat... | allowedTools = parseAllowed...|[moderate]
+  # ... and 11 more functions
+
+# logs.ts (9 functions, 2 complex)
+  runLogsList|function runLogsList(options, reporter): Promis...|flow:[if×5,for×6,try,catch] | transforms:[filter,map,Object.keys,Object.entries] | return 1 | return 0|[complex]
+  runLogsShow|function runLogsShow(...4 params): Promise<number>|flow:[if×10,else,for×4,try×2] | return 1 | return 1|[complex]
+  runLogsGc|function runLogsGc(options, reporter): Promise<...|flow:[if×3,for×2,try×2,catch×2] | return 1 | return 0|[moderate]
+  formatRelativeTime|function formatRelativeTime(date): string|flow:[if×5] | return 'just now' | return `${diffMin}m ago`|[moderate]
+  resolveFileArg|function resolveFileArg(arg, logDir): string[]|flow:[if×2,for,try,catch] | transforms:[filter,map] | return [resolve(process.cwd... | return matches|[moderate]
+  # ... and 4 more functions
+
+# context.ts (12 functions, 2 complex)
+  buildEventContext|function buildEventContext(...4 params): Promis...|flow:[if×3,throw×2] | transforms:[await] | return result.data | payloadResult = GitHubEvent...|[complex]
+  buildLocalEventContext|function buildLocalEventContext(options): Event...|flow:[if×2,else×2] | transforms:[map] | return {
+    eventType: 'pu... | cwd = options.cwd ?? proces...|[complex]
+  formatHunkForAnalysis|function formatHunkForAnalysis(hunkCtx): string|flow:[if×3] | return lines.join('\n') | afterStart = hunkCtx.hunk.n...|[moderate]
+  detectLanguage|function detectLanguage(filename): string|return languageMap[ext] ?? ext | ext = filename.split('.').p...|[moderate]
+  expandHunkContext|function expandHunkContext(...4 params): HunkWi...|flow:[if] | return { filename, hunk, co... | return {
+    filename,
+    ...|[moderate]
+  # ... and 7 more functions
+
+# renderer.ts (10 functions, 2 complex)
+  renderReview|function renderReview(...7 params): GitHubRevie...|flow:[if×7,for×4,throw] | transforms:[filter,map] | return {
+        event,
+   ... | return {
+        event,
+   ...|[complex]
+  renderSummaryComment|function renderSummaryComment(...5 params): string|flow:[if×6,else×2,for×4] | transforms:[filter,sort,Object.entries,map] | return lines.join('\n') | counts = countBySeverity(fi...|[complex]
+  renderSkillReport|function renderSkillReport(report, options): Re...|flow:[if,for×2] | transforms:[sort] | return { review, summaryCom... | filteredFindings = filterFi...|[moderate]
+  determineReviewEvent|function determineReviewEvent(...4 params): Git...|flow:[if×2] | return 'COMMENT' | return 'REQUEST_CHANGES'
+  renderFindingsBody|function renderFindingsBody(findings, skill): s...|flow:[for] | return lines.join('\n') | location = finding.location...
+  # ... and 5 more functions
+
+# github-issues.ts (2 functions, 2 complex)
+  createFixPR|function createFixPR(...5 params): Promise<FixP...|flow:[if×6,for×8,try×2,catch×2] | api:[GET] | transforms:[filter,sort,map,await] | return null | return bLine - aLine|[complex]
+  createOrUpdateIssue|function createOrUpdateIssue(...5 params): Prom...|flow:[if×3,for] | transforms:[await] | return {
+      issueNumber:... | return null|[complex]
+
+# haiku.ts (6 functions, 2 complex)
+  callHaikuWithTools|function callHaikuWithTools(options): Promise<H...|flow:[if×6,for×3,try×2,catch×2] | transforms:[filter,find,await] | return Sentry.startSpan(
+  ... | return usages.length > 0 ? ...|[complex]
+  callHaiku|function callHaiku(options): Promise<HaikuResul...|flow:[if×5,try,catch] | transforms:[await] | return Sentry.startSpan(
+  ... | return { success: false, er...|[complex]
+  setFinalSpanAttrs|function setFinalSpanAttrs(stopReason?, respons...|simple logic|[moderate]
+  currentUsage|function currentUsage(): UsageStats|return usages.length > 0 ? ...|[moderate]
+  setGenAiResponseAttrs|function setGenAiResponseAttrs(...4 params): void|flow:[if×2] | cacheRead = usage.cache_rea... | cacheWrite = usage.cache_cr...
+  # ... and 1 more functions
+
+# add.ts (8 functions, 2 complex)
+  runAddRemote|function runAddRemote(...4 params): Promise<num...|flow:[if×9,for×2,try×4,catch×4] | transforms:[await,find] | return 1 | return 1|[complex]
+  runAdd|function runAdd(options, reporter): Promise<num...|flow:[if×10,for×5,try×3,catch×3] | transforms:[await,map] | return 1 | return 1|[complex]
+  promptSkillSelection|function promptSkillSelection(...5 params): Pro...|flow:[if,for,try,catch] | transforms:[filter,map,await,sort] | return null | return {
+      name: `${nam...|[moderate]
+  promptRemoteSkillSelection|function promptRemoteSkillSelection(...4 params...|flow:[if,for,try,catch] | transforms:[filter,sort,map,await] | return null | return {
+      name: skill....|[moderate]
+  renderSkillList|function renderSkillList(...4 params): void|flow:[if,else,for] | transforms:[sort,Array.from] | sortedSkills = Array.from(s... | isConfigured = configuredSk...|[moderate]
+  # ... and 3 more functions
+
+# box.ts (17 functions, 1 complex)
+  BoxRenderer.wrapLine|wrapLine(line): string[]|flow:[if×8,for×3,while] | return as-is
+    if (stripp... | return result|[complex]
+  BoxRenderer.while|while(remaining.length > 0): void|flow:[if×5,for] | currentIndent = isFirstLine... | availableWidth = maxWidth -...|[moderate]
+  BoxRenderer.header|header(): this|flow:[if,else] | return this | titlePart = `${BOX.horizont...|[moderate]
+  BoxRenderer.content|content(contentLines): this|flow:[if,else,for×2] | return this | lines = Array.isArray(conte...|[moderate]
+  BoxRenderer.if|if(this.mode.isTTY): void|titlePart = `${BOX.horizont... | badgePart = this.badge ? ` ...|[moderate]
+  # ... and 12 more functions
+
+# fix-quality.ts (5 functions, 1 complex)
+  sanitizeFindingsSuggestedFixes|function sanitizeFindingsSuggestedFixes(finding...|flow:[if×5,for] | transforms:[await] | return { findings: sanitize... | deterministic = runDetermin...|[complex]
+  runDeterministicGate|function runDeterministicGate(finding, repoPath...|flow:[if×8,try×2,catch×2] | return { pass: false } | return { pass: false }|[moderate]
+  overlapsAnchor|function overlapsAnchor(diff, finding): boolean|flow:[if×2] | return false | return false
+  normalizeDiffPath|function normalizeDiffPath(rawPath): string|flow:[if] | return trimmed.slice(2) | return trimmed
+  stripSuggestedFix|function stripSuggestedFix(finding): Finding|return rest
+
+# writer.ts (2 functions, 1 complex)
+  generateSkillToml|function generateSkillToml(skill): string|flow:[if×27,for] | transforms:[map] | return lines.join('\n') | pathsStr = skill.paths.map(...|[complex]
+  appendSkill|function appendSkill(configPath, skill): void|flow:[if×2,else×2] | existingContent = readFileS... | skillToml = generateSkillTo...
+
+# prepare.ts (2 functions, 1 complex)
+  prepareFiles|function prepareFiles(context, options): Prepar...|flow:[if×6,for] | return { files: [], skipped... | return {
+    files: groupHu...|[complex]
+  groupHunksByFile|function groupHunksByFile(hunks): PreparedFile[]|flow:[if,else,for] | api:[GET] | transforms:[Array.from] | return Array.from(fileMap, ... | fileMap = new Map<string, H...|[moderate]
+
+# setup-app.ts (1 functions, 1 complex)
+  runSetupApp|function runSetupApp(options, reporter): Promis...|flow:[if×10,else,for×7,try×3] | transforms:[await] | return 0 | return 1|[complex]
+
+# sync.ts (1 functions, 1 complex)
+  runSync|function runSync(options, reporter): Promise<nu...|flow:[if×10,else×3,for×4,try×2] | transforms:[filter,await] | return 0 | return 1|[complex]
+
+# issue-renderer.ts (5 functions, 1 complex)
+  renderIssueBody|function renderIssueBody(reports, options): string|flow:[if×7,else,for×5] | transforms:[filter,sort,Object.entries] | return lines.join('\n') | return severityDiff|[complex]
+  renderFindingItem|function renderFindingItem(finding, ctx): string|flow:[if×3,else] | return line | canLink = repoOwner && repo...|[moderate]
+  renderNoFindingsUpdate|function renderNoFindingsUpdate(commitSha, runT...|return [
+    '## Latest Sca... | shortSha = commitSha.slice(...
+  groupFindingsByFile|function groupFindingsByFile(findings): Record<...|flow:[if,for] | return groups | path = finding.location.path
+  formatLineRange|function formatLineRange(loc): string|flow:[if] | return `L${loc.startLine}-L... | return `L${loc.startLine}`
+
+# inputs.ts (5 functions, 1 complex)
+  parseActionInputs|function parseActionInputs(): ActionInputs|flow:[if,for,throw] | return {
+    anthropicApiKe... | authToken = getInput('anthr...|[complex]
+  getInput|function getInput(name, required = false): string|flow:[if,throw] | return value | hyphenEnv = `INPUT_${name.t...
+  setupAuthEnv|function setupAuthEnv(inputs): void|flow:[if,else]
+  parseBooleanInput|function parseBooleanInput(value): boolean | un...|flow:[if×2] | return true | return false
+  validateInputs|function validateInputs(inputs): void|flow:[if,throw]
+
+# runner.ts (2 functions, 1 complex)
+  runEval|function runEval(meta, options): Promise<EvalRe...|flow:[if×3,for×2,try,finally] | transforms:[await,map] | return {
+      name,
+      ... | startTime = Date.now()|[complex]
+  log|const log = (...) => {...}|flow:[if]
+
+# files.ts (7 functions, 1 complex)
+  loadGitignoreRules|function loadGitignoreRules(gitRoot): Ignore|flow:[if,else,for×2,try×2] | transforms:[sort,map] | return ig | ig = ignore()|[complex]
+  prefixGitignorePatterns|function prefixGitignorePatterns(content, prefi...|flow:[if] | transforms:[map] | return content
+    .split('... | return line|[moderate]
+  createPatchFromContent|function createPatchFromContent(content): string|flow:[if,for] | return '@@ -0,0 +0,0 @@\n' | return patchLines.join('\n')
+  createSyntheticFileChange|function createSyntheticFileChange(absolutePath...|return {
+    filename: rela... | content = readFileSync(abso...
+  findGitRoot|function findGitRoot(startPath): string | null|flow:[if,while] | return current | return null
+  # ... and 2 more functions
+
+# fix.ts (6 functions, 1 complex)
+  runInteractiveFixFlow|function runInteractiveFixFlow(findings, report...|flow:[if×12,for×5,switch,try] | transforms:[await,sort] | return 0 | return pathCmp|[complex]
+  renderFixSummary|function renderFixSummary(summary, reporter): void|flow:[if×8,for] | transforms:[filter] | failedResults = summary.res...|[moderate]
+  applyAllFixes|function applyAllFixes(findings): FixSummary|flow:[if,for,try,catch] | return {
+    applied,
+    s... | applied = 0|[moderate]
+  collectFixableFindings|function collectFixableFindings(reports): Findi...|flow:[if×3,for×2] | transforms:[sort] | return fixable.sort((a, b) ... | return 0|[moderate]
+  promptFixAction|function promptFixAction(message): Promise<FixA...|flow:[switch] | transforms:[await] | return 'y' | return 'a'
+  # ... and 1 more functions
+
+# index.ts (19 functions, 1 complex)
+  evaluateFixAttempts|function evaluateFixAttempts(...6 params): Prom...|flow:[if×12,else×2,for,try×2] | transforms:[filter,await] | return Sentry.startSpan(
+  ... | return result|[complex]
+  escapeHtml|function escapeHtml(text): string|transforms:[forEach] | return `\0CODE${idx}\0` | return `\0CODE${idx}\0`|[moderate]
+  loadEvalFile|function loadEvalFile(filePath): EvalFile|flow:[if×2,try×2,catch×2,throw×4] | transforms:[map] | return validated.data | validated = EvalFileSchema....|[moderate]
+  discoverEvalFiles|function discoverEvalFiles(baseDir?): string[]|flow:[if,try,catch] | transforms:[filter,sort,map] | return [] | return []|[moderate]
+  fetchCodeAtLocation|function fetchCodeAtLocation(...6 params): Prom...|flow:[if,try,catch,throw] | transforms:[await] | return extractLines(content... | return '(file does not exis...|[moderate]
+  # ... and 14 more functions
+
+# reporter.ts (69 functions, 1 complex)
+  Reporter.renderSummary|renderSummary(reports, totalDuration, options?)...|flow:[if×14,else×2,for×3] | totalFailedHunks = 0 | totalFailedExtractions = 0|[complex]
+  Reporter.contextFiles|contextFiles(files): void|flow:[if×4,else,for×2] | transforms:[reduce] | totalChunks = files.reduce(... | displayFiles = files.slice(...|[moderate]
+  Reporter.renderEmptyState|renderEmptyState(message, tip?): void|flow:[if×4,else,for] | box = new BoxRenderer({
+   ...|[moderate]
+  Reporter.if|if(this.mode.isTTY): void|flow:[if×6,else,for] | durationLine = `Analysis co...|[moderate]
+  Reporter.configTriggers|configTriggers(loaded, matched, triggers): void|flow:[if×2,else,for×2]|[moderate]
+  # ... and 64 more functions
+
+# base.ts (14 functions, 1 complex)
+  writeFindingsOutput|function writeFindingsOutput(reports, context):...|transforms:[filter,map] | return filePath | filePath = getFindingsOutpu...|[complex]
+  findClaudeCodeExecutable|function findClaudeCodeExecutable(): Promise<st...|flow:[if×4,for,try×2,catch] | return envPath | return homeLocalBin|[moderate]
+  getAuthenticatedBotLogin|function getAuthenticatedBotLogin(octokit): Pro...|flow:[if×2,for×2,try×3,catch×3] | transforms:[await] | return result.viewer.login | return `${app.slug}[bot]`|[moderate]
+  setOutput|function setOutput(name, value): void|flow:[if×3,else,for] | outputFile = process.env['G... | stringValue = String(value)|[moderate]
+  handleTriggerErrors|function handleTriggerErrors(triggerErrors, tot...|flow:[if×3,for]
+  # ... and 9 more functions
+
+# github-checks.ts (14 functions, 1 complex)
+  buildCoreSummary|function buildCoreSummary(data): string|flow:[if×3,else×2,for×2] | transforms:[sort] | return lines.join('\n') | sortedFindings = [...data.f...|[complex]
+  findingsToAnnotations|function findingsToAnnotations(findings, report...|flow:[if×4,for×2] | transforms:[filter,sort] | return annotations | filtered = filterFindings(f...|[moderate]
+  renderFindingsSections|function renderFindingsSections(findings): stri...|flow:[if×2,for×4] | api:[GET] | return lines | findingsBySeverity = new Ma...|[moderate]
+  updateSkillCheck|function updateSkillCheck(...4 params): Promise...|transforms:[await] | filteredForConclusion = fil... | conclusion = determineConcl...|[moderate]
+  updateCoreCheck|function updateCoreCheck(...6 params): Promise<...|transforms:[await] | summary = buildCoreSummary(... | title = summaryData.totalFi...
+  # ... and 9 more functions
+
+# init.ts (13 functions, 1 complex)
+  runInit|function runInit(options, reporter): Promise<nu...|flow:[if×16,else×7,for×2,try] | transforms:[filter,await] | return 1 | return trimmed === '.warden...|[complex]
+  installBundledSkills|function installBundledSkills(...4 params): number|flow:[if×5,for,try,catch] | return 0 | return installed|[moderate]
+  generateWardenToml|function generateWardenToml(): string|return `# Warden Configurat...|[moderate]
+  generateWorkflowYaml|function generateWorkflowYaml(): string|flow:[for] | return `name: Warden
+
+on:
+ ... | majorVersion = getMajorVers...|[moderate]
+  ensureClaudeSymlink|function ensureClaudeSymlink(repoRoot, force, r...|flow:[if×4,try,catch] | return false | return false|[moderate]
+  # ... and 8 more functions
+
+# terminal.ts (7 functions, 1 complex)
+  formatFindingTTY|function formatFindingTTY(finding, options?): s...|flow:[if×13,else×3,for×2] | transforms:[map] | return chalk.green(`  ${lin... | return chalk.red(`  ${line}`)|[complex]
+  formatFindingCI|function formatFindingCI(finding): string[]|flow:[if×6,for] | transforms:[map] | return `${loc.path}:${range}` | return lines|[moderate]
+  renderSkillBoxTTY|function renderSkillBoxTTY(report, mode, option...|flow:[if×3,else,for] | return box.render() | counts = countBySeverity(re...|[moderate]
+  renderSkillCI|function renderSkillCI(report, verbosity): stri...|flow:[if×4,for×3] | return lines | counts = countBySeverity(re...|[moderate]
+  renderTerminalReport|function renderTerminalReport(reports, mode?, o...|flow:[if×2,else,for×3] | return lines.join('\n')|[moderate]
+  # ... and 2 more functions
+
+# ink-runner.tsx (10 functions, 1 complex)
+  runSkillTasksWithInk|function runSkillTasksWithInk(tasks, options): ...|flow:[if×13,else,for×5] | transforms:[await,find] | return runComposedSkillTask... | return results|[complex]
+  SkillRunner|function SkillRunner(...4 params): React.ReactE...|transforms:[filter,map] | return (
+    <Box flexDirec... | completed = skills.filter((...|[moderate]
+  CompletedSkill|function CompletedSkill({ skill }): React.React...|flow:[if×2] | return (
+      <Text>
+     ... | return (
+      <Text>
+     ...|[moderate]
+  printSkillSummary|function printSkillSummary(skillStates): void|flow:[if×6,else×2,for×2] | transforms:[filter] | duration = skill.durationMs... | skippedCount = skill.files....|[moderate]
+  RunningSkill|function RunningSkill({ skill }): React.ReactEl...|transforms:[filter,map,reduce] | return (
+    <Box flexDirec... | activeFiles = skill.files.f...|[moderate]
+  # ... and 5 more functions
+
+# schedule.ts (1 functions, 1 complex)
+  runScheduleWorkflow|function runScheduleWorkflow(octokit, inputs, r...|flow:[if×14,for×3,try×5,catch×5] | transforms:[filter,map,await] | configFullPath = join(repoP... | fullName = process.env['GIT...|[complex]
+
+# executor.ts (1 functions, 1 complex)
+  executeTrigger|function executeTrigger(trigger, deps): Promise...|flow:[if×5,for×3,try×4,catch×4] | transforms:[await] | return Sentry.startSpan(
+  ... | return {
+          triggerN...|[complex]
+
+# poster.ts (4 functions, 1 complex)
+  postTriggerReview|function postTriggerReview(ctx, deps): Promise<...|flow:[if×20,for×7,try×2,catch×2] | transforms:[await] | return { posted: false, new... | return { posted: false, new...|[complex]
+  postReviewToGitHub|function postReviewToGitHub(octokit, context, r...|flow:[if×2] | transforms:[filter,map,await] | pullNumber = context.pullRe... | commitId = context.pullRequ...|[moderate]
+  moveCommentsToBody|function moveCommentsToBody(renderResult, findi...|flow:[if] | return renderResult | return {
+    ...renderResul...
+  isLineResolutionError|function isLineResolutionError(error): boolean|flow:[if] | return false | return msg.includes('pull_r...
+
+# parser.ts (3 functions, 0 complex)
+  parsePatch|function parsePatch(patch): DiffHunk[]|flow:[if×6,else,for] | return hunks | lines = patch.split('\n')|[moderate]
+  parseHunkHeader|function parseHunkHeader(line): Omit<DiffHunk, ...|flow:[if] | return null | return {
+    oldStart: pars...
+  parseFileDiff|function parseFileDiff(filename, patch, status)...|return {
+    filename,
+    ...
+
+# classify.ts (2 functions, 0 complex)
+  classifyFile|function classifyFile(filename, userPatterns?):...|flow:[if×2,for×2] | return mode | return 'skip'
+  shouldSkipFile|function shouldSkipFile(filename, userPatterns?...|return classifyFile(filenam...
+
+# credentials.ts (1 functions, 0 complex)
+  exchangeCodeForCredentials|function exchangeCodeForCredentials(code): Prom...|flow:[if,for,throw] | transforms:[await] | return {
+    id: data.id,
+ ... | url = `https://api.github.c...|[moderate]
+
+# coalesce.ts (9 functions, 0 complex)
+  splitHunk|function splitHunk(hunk, maxChunkSize): DiffHunk[]|flow:[if×5,for,while] | return as-is
+  if (hunk.con... | return result|[moderate]
+  createSubHunk|function createSubHunk(originalHunk, lines, lin...|flow:[if×3,for×2] | transforms:[filter] | return {
+    oldStart,
+    ... | newLinesBeforeOffset = 0|[moderate]
+  coalesceHunks|function coalesceHunks(hunks, options): DiffHunk[]|flow:[if×3,else,for] | transforms:[sort] | return hunks | return result|[moderate]
+  mergeHunks|function mergeHunks(a, b): DiffHunk|flow:[if,else] | return {
+    oldStart,
+    ... | newStart = Math.min(a.newSt...|[moderate]
+  findBestSplitPoint|function findBestSplitPoint(...4 params): number|flow:[if×2,for] | return bestIdx | windowSize = Math.max(10, M...|[moderate]
+  # ... and 4 more functions
+
+# server.ts (3 functions, 0 complex)
+  buildStartPage|function buildStartPage(manifest, state, org?):...|flow:[if] | return `<!DOCTYPE html>
+<ht... | githubUrl = org
+    ? `http...|[moderate]
+  startCallbackServer|function startCallbackServer(options): |simple logic
+  close|const close = (...) => {...}|simple logic
+
+# schedule-context.ts (2 functions, 0 complex)
+  buildScheduleEventContext|function buildScheduleEventContext(options): Pr...|flow:[if,for×2] | transforms:[filter,await] | return !isIgnored | return {
+    eventType: 'sc...|[moderate]
+  filterFilesByPatterns|function filterFilesByPatterns(files, patterns,...|flow:[if] | transforms:[filter] | return !isIgnored | return filtered|[moderate]
+
+# diff-apply.ts (2 functions, 0 complex)
+  applyHunk|function applyHunk(lines, hunk): string[]|flow:[if×2,for×2,switch,throw×2] | return result | result = [...lines]|[moderate]
+  applyUnifiedDiff|function applyUnifiedDiff(filePath, diff): void|flow:[if×2,for,throw×2] | transforms:[sort] | hunks = parsePatch(diff) | content = readFileSync(file...|[moderate]
+
+# retry.ts (2 functions, 0 complex)
+  sleep|function sleep(ms, abortSignal?): Promise<void>|flow:[if] | return new Promise((resolve... | timeout = setTimeout(resolv...
+  calculateRetryDelay|function calculateRetryDelay(attempt, config): ...|return Math.min(delay, conf... | delay = config.initialDelay...
+
+# apply.ts (1 functions, 0 complex)
+  applyDiffToContent|function applyDiffToContent(content, diff): string|flow:[if×6,else×2,for×3,throw×3] | transforms:[sort] | return lines.join('\n') | hunks = parsePatch(diff)|[moderate]
+
+# tty.ts (1 functions, 0 complex)
+  detectOutputMode|function detectOutputMode(colorOverride?): Outp...|flow:[if×4,else×3,for] | return {
+    isTTY,
+    sup... | streamIsTTY = (process.stde...|[moderate]
+
+# browser.ts (1 functions, 0 complex)
+  openBrowser|function openBrowser(url): Promise<void>|flow:[if,else,switch] | return new Promise((resolve... | os = platform()|[moderate]
+
+# manifest.ts (1 functions, 0 complex)
+  buildManifest|function buildManifest(options): GitHubAppManifest|flow:[for] | return {
+    name,
+    url:... | name = options.name ?? 'War...|[moderate]
+
+# setup.ts (1 functions, 0 complex)
+  loadTestEnv|function loadTestEnv(): void|flow:[if,for] | root = join(import.meta.dir... | envFiles = ['.env', '.env.l...
+
+# verbosity.ts (1 functions, 0 complex)
+  parseVerbosity|function parseVerbosity(quiet, verboseCount, de...|flow:[if×3] | return Verbosity.Quiet | return Verbosity.Debug
+
+# github.ts (5 functions, 0 complex)
+  fetchFollowUpChanges|function fetchFollowUpChanges(...5 params): Pro...|flow:[if×2,for×2] | transforms:[await] | return { patches, commitMes... | patches = new Map<string, s...|[moderate]
+  postThreadReply|function postThreadReply(octokit, threadId, bod...|flow:[try,catch,throw] | transforms:[await]|[moderate]
+  fetchFileContent|function fetchFileContent(...5 params): Promise...|flow:[if×2,throw×2] | transforms:[await] | return Buffer.from(data.con...
+  formatFailedFixReply|function formatFailedFixReply(commitSha, reason...|flow:[try] | return `**Fix attempt detec... | shortSha = commitSha.slice(...
+  fetchFileLines|function fetchFileLines(...7 params): Promise<s...|transforms:[await,map] | return lines
+    .slice(sta... | content = await fetchFileCo...
+
+# async.ts (5 functions, 0 complex)
+  Semaphore.acquire|acquire(): Promise<void>|flow:[if] | return new Promise<void>((r...
+  Semaphore.release|release(): void|flow:[if,else] | next = this.waiters.shift()
+  worker|function worker(): Promise<void>|flow:[if,while] | transforms:[await] | index = nextIndex++ | item = items[index] as T
+  Semaphore.if|if(this.permits > 0): void|simple logic
+  Semaphore.if|if(next): void|simple logic
+
+# exec.ts (4 functions, 0 complex)
+  execNonInteractive|function execNonInteractive(command, options?):...|flow:[if×2,throw×2] | return stdout.trim() | spawnOptions = buildSpawnOp...|[moderate]
+  execFileNonInteractive|function execFileNonInteractive(file, args, opt...|flow:[if×2,throw×2] | return stdout.trim() | spawnOptions = buildSpawnOp...
+  buildSpawnOptions|function buildSpawnOptions(options?): SpawnSync...|return {
+    encoding: 'utf...
+  execGitNonInteractive|function execGitNonInteractive(args, options?):...|return execFileNonInteracti... | env = {
+    ...options?.env...
+
+# log-cleanup.ts (2 functions, 0 complex)
+  cleanupArtifacts|function cleanupArtifacts(opts): Promise<number>|flow:[if×6,for,try,catch] | transforms:[await] | return 0 | return 0|[moderate]
+  findExpiredArtifacts|function findExpiredArtifacts(dir, retentionDay...|flow:[if×2,for,try×2,catch×2] | return [] | return expired|[moderate]
+
+# review-state.ts (2 functions, 0 complex)
+  findBotReviewState|function findBotReviewState(reviews, botLogin):...|flow:[if×3,for] | return null | return { state: review.stat...
+  isValidReviewState|function isValidReviewState(state): state is Re...|return VALID_REVIEW_STATES....
+
+# version.ts (2 functions, 0 complex)
+  getVersion|function getVersion(): string|flow:[if] | return cachedVersion | return cachedVersion
+  getMajorVersion|function getMajorVersion(): string|return getVersion().split('...
+
+# pricing.ts (1 functions, 0 complex)
+  apiUsageToStats|function apiUsageToStats(model, usage): UsageStats|flow:[if] | return {
+    inputTokens,
+ ... | pricing = MODEL_PRICING[model]|[moderate]
+
+# auth.ts (1 functions, 0 complex)
+  verifyAuth|function verifyAuth({ apiKey }): void|flow:[if×2,try,catch,throw×2] | isNotFound = error instance... | detail = error instanceof E...|[moderate]
+
+# input.ts (1 functions, 0 complex)
+  readSingleKey|function readSingleKey(): Promise<string>|flow:[if] | return new Promise((resolve... | stdin = process.stdin|[moderate]
+
+# coordination.ts (1 functions, 0 complex)
+  shouldResolveStaleComments|function shouldResolveStaleComments(results): b...|return results.every((r) =>...
+
+# matcher.ts (10 functions, 0 complex)
+  globToRegex|function globToRegex(pattern): RegExp|flow:[if×4,for] | api:[DELETE,GET] | return cached | return regex|[moderate]
+  matchTrigger|function matchTrigger(trigger, context, environ...|flow:[if×9,else] | transforms:[map] | return matchPathFilters(tri... | return false|[moderate]
+  filterContextByPaths|function filterContextByPaths(context, filters)...|flow:[if×4] | transforms:[filter] | return original reference
+ ... | return context|[moderate]
+  matchPathFilters|function matchPathFilters(filters, filenames): ...|flow:[if×5] | return false | return false|[moderate]
+  countSeverity|function countSeverity(reports, severity): number|transforms:[filter,reduce] | return reports.reduce(
+    ...
+  # ... and 5 more functions
+
+# usage.ts (6 functions, 0 complex)
+  aggregateAuxiliaryUsage|function aggregateAuxiliaryUsage(entries): Auxi...|flow:[if×2,else,for] | return undefined | return map|[moderate]
+  mergeAuxiliaryUsage|function mergeAuxiliaryUsage(a, b): AuxiliaryUs...|flow:[if×3,for×2] | transforms:[Object.entries] | return undefined | return b
+  extractUsage|function extractUsage(result): UsageStats|return {
+    inputTokens: r... | rawInput = result.usage['in...
+  aggregateUsage|function aggregateUsage(usages): UsageStats|transforms:[reduce] | return usages.reduce(
+    (...
+  emptyUsage|function emptyUsage(): UsageStats|return {
+    inputTokens: 0...
+  # ... and 1 more functions
+
+# stale.ts (7 functions, 0 complex)
+  resolveStaleComments|function resolveStaleComments(octokit, staleCom...|flow:[if×3,for×2,try,catch] | transforms:[await] | return { resolvedCount: res... | resolvedIds = new Set<numbe...|[moderate]
+  findStaleComments|function findStaleComments(existingComments, al...|flow:[if×6,for] | return staleComments | hasMatchingFinding = allFin...|[moderate]
+  findingMatchesComment|function findingMatchesComment(finding, comment...|flow:[if×6,for] | return false | return false|[moderate]
+  buildAnalyzedScope|function buildAnalyzedScope(fileChanges): Analy...|transforms:[map] | return {
+    files: new Set...
+  locationMatchesComment|function locationMatchesComment(location, comme...|flow:[if] | return false | return Math.abs(line - comm...
+  # ... and 2 more functions
+
+# errors.ts (4 functions, 0 complex)
+  isRetryableError|function isRetryableError(error): boolean|flow:[if×7,for] | return true | return true
+  isSubprocessError|function isSubprocessError(error): boolean|flow:[if×2] | return false | return true
+  isAuthenticationError|function isAuthenticationError(error): boolean|flow:[if,for] | return true | return isAuthenticationErro...
+  isAuthenticationErrorMessage|function isAuthenticationErrorMessage(message):...|return AUTH_ERROR_PATTERNS....
+
+# manager.ts (3 functions, 0 complex)
+  aggregateUsage|function aggregateUsage(reports): UsageStats | ...|flow:[if] | transforms:[filter,reduce] | return undefined | return reportsWithUsage.red...|[moderate]
+  buildCoreSummaryData|function buildCoreSummaryData(results, reports): |simple logic
+  determineCoreConclusion|function determineCoreConclusion(shouldFailActi...|flow:[if×2] | return 'failure' | return 'neutral'
+
+# types.ts (2 functions, 0 complex)
+  formatEvalResult|function formatEvalResult(result): string|flow:[if×2,for×2] | return lines.join('\n') | status = result.passed ? 'P...|[moderate]
+  evalPassed|function evalPassed(meta, judgeResponse): boolean|flow:[if×2,for×2] | return false | return false
+
+# sentry.ts (13 functions, 0 complex)
+  emitSkillMetrics|function emitSkillMetrics(report): void|flow:[if×4,for] | transforms:[filter,Object.keys] | count = report.findings.fil...|[moderate]
+  initSentry|function initSentry(context): void|flow:[if] | dsn = process.env['WARDEN_S...|[moderate]
+  setGlobalAttributes|function setGlobalAttributes(attrs, string | nu...|flow:[if,try,catch]|[moderate]
+  getTraceId|function getTraceId(): string | undefined|flow:[if,try,catch] | return undefined | return Sentry.getActiveSpan...|[moderate]
+  flushSentry|function flushSentry(timeoutMs = 2000): Promise...|flow:[if,try,catch] | transforms:[await]|[moderate]
+  # ... and 8 more functions
+
+# formatters.ts (18 functions, 0 complex)
+  formatDuration|function formatDuration(ms): string|flow:[if×5] | return `${Math.round(ms)}ms` | return `${formatted}s`|[moderate]
+  formatStatsCompact|function formatStatsCompact(durationMs?, usage?...|flow:[if×2] | return parts.join(' · ') | auxCost = auxiliaryUsage ? ...
+  formatFindingCounts|function formatFindingCounts(counts, number>): ...|flow:[if×4] | transforms:[reduce,Object.values] | return chalk.green('No find... | return `${total} finding${t...
+  formatFindingCountsPlain|function formatFindingCountsPlain(counts, numbe...|flow:[if×4] | transforms:[reduce,Object.values] | return 'No findings' | return `${total} finding${t...
+  countBySeverity|function countBySeverity(findings): Record<Seve...|flow:[for] | return counts
+  # ... and 13 more functions
+
+# git.ts (3 functions, 0 complex)
+  parseCombinedDiff|function parseCombinedDiff(diffOutput): Map<str...|flow:[if×4,for] | return patches | return patches|[moderate]
+  mapStatus|function mapStatus(status): GitFileChange['stat...|flow:[switch] | return 'added' | return 'removed'
+  buildDiffArgs|function buildDiffArgs(...4 params): string[]|flow:[if] | return ['diff', ...flags, '... | return ['diff', ...flags, d...
+
+# prompt.ts (1 functions, 0 complex)
+  buildHunkUserPrompt|function buildHunkUserPrompt(skill, hunkCtx, pr...|flow:[if×5,for×3] | transforms:[filter,map] | return sections.join('\n\n') | prSection = `## Pull Reques...|[moderate]
+
+# args.ts (4 functions, 0 complex)
+  detectTargetType|function detectTargetType(target, options): 'gi...|flow:[if×9] | return 'git' | return 'git'|[moderate]
+  resolveColorOption|function resolveColorOption(values): boolean | ...|flow:[if×2] | return false | return true
+  showVersion|function showVersion(): void|simple logic
+  showHelp|function showHelp(): void|simple logic
+
+# LOGIC_STATS: 540 snippets | simple:312 moderate:154 complex:74
+# TRUNCATION: showed 500/540 (top by complexity for monorepo)
+
+[PROJECT_PROFILE]
+# Multi-identity project profile
+type=Monorepo
+languages=typescript,python,javascript,bash,css
+frameworks=javascript:react
+facets=ci-cd
+stack=TypeScript + Python + JavaScript + React
+testing=frameworks:vitest | files:59
+build=pkg:pnpm
+
+[SUB_PROJECTS]
+  dex-docs [?/?] packages/docs
+
+# Languages: typescript:170(93%), python:8(4%), javascript:2(1%), bash:1(0%), css:1(0%)
+
+[SUB_PROJECTS_DETAIL]
+  dex-docs [/]
+
+[GIT_CONTEXT]
+branch=main
+# Recent commits (15)
+  5a550646 chore(deps): bump yaml from 2.8.2 to 2.8.3 (#254)
+  6e859f28 Docs UI improvements (#248)
+  e251fb64 Merge branch 'release/0.20.0'
+  e7dbd6eb release: 0.20.0
+  b0d05065 fix(o11y): add gen_ai.request.model attribute (#247)
+  0c5e0f44 ref(dotagents): Gitignore auto-generated files instead of tracking them (#246)
+  ed719535 Merge branch 'release/0.19.0'
+  0096b702 release: 0.19.0
+  cc3ab92e fix: handle multi-line YAML scalar values in SKILL.md frontmatter (#243)
+  0e33a7cb feat(docs): Improved landing visuals (#245)
+# Hot files (top 15 by change frequency)
+  package.json|changes:34
+  src/sdk/analyze.ts|changes:27
+  src/cli/output/tasks.ts|changes:25
+  src/cli/main.ts|changes:24
+  src/action/workflow/pr-workflow.ts|changes:20
+  dist/action/index.js|changes:17
+  dist/action/index.js.map|changes:16
+  src/config/schema.ts|changes:14
+  src/output/renderer.ts|changes:14
+  src/action/review/poster.ts|changes:14
+  src/action/workflow/schedule.ts|changes:13
+  src/action/triggers/executor.ts|changes:13
+  src/output/renderer.test.ts|changes:13
+  dist/action/index.d.ts.map|changes:13
+  src/cli/output/ink-runner.tsx|changes:12
+
+[BEST_PRACTICES]
+python|use:type-hints,dataclasses,pathlib,logging|avoid:bare-except,mutable-defaults,global-state
+typescript|use:strict-mode,interfaces,readonly,discriminated-unions|avoid:any,non-null-assertion,enum
+react|use:hooks,TypeScript,functional-components,Suspense|avoid:class-components,inline-functions-in-JSX
+
+[PROGRESS_DETAIL]
+# Completion: 74% | TODOs: 0 | FIXMEs: 0 | Placeholders: 13
+# 13 placeholders detected across files:
+  dedup.ts|placeholders:5
+  github-issues.ts|placeholders:3
+  haiku.ts|placeholders:2
+  review-state.ts|placeholders:1
+  loader.ts|placeholders:1
+  pr-workflow.ts|placeholders:1
+# Per-file progress:
+
+[PROJECT_STRUCTURE]
+# Directory structure with file counts and purposes
+# Type: Monorepo
+# Stack: Monorepo
+# Patterns: repository-pattern
+# Key directories:
+  src/|files:106|TypeScript|Source code
+  packages/|files:23|TypeScript,JavaScript
+  skills/|files:16|Python
+  evals/|files:15|TypeScript|Request handlers
+  .agents/|files:12|Data models
+  .github/|files:9
+  specs/|files:7
+  assets/|files:4|Static assets
+  plugins/|files:2|Plugin system
+  .claude/|files:1
+  .claude-plugin/|files:1
+  .dex/|files:1
+  bin/|files:1
+  scripts/|files:1|TypeScript|Build/deploy scripts

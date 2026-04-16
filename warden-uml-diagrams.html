@@ -1,0 +1,904 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@sentry/warden — Architecture UML Diagrams</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #0d1117;
+        color: #c9d1d9;
+        min-height: 100vh;
+      }
+
+      header {
+        background: #161b22;
+        border-bottom: 1px solid #30363d;
+        padding: 20px 32px;
+        position: sticky;
+        top: 0;
+        z-index: 200;
+      }
+      header h1 {
+        font-size: 22px;
+        color: #58a6ff;
+        font-weight: 600;
+      }
+      header p {
+        font-size: 13px;
+        color: #8b949e;
+        margin-top: 4px;
+      }
+
+      nav {
+        display: flex;
+        gap: 8px;
+        margin-top: 14px;
+        flex-wrap: wrap;
+      }
+      nav a {
+        background: #21262d;
+        border: 1px solid #30363d;
+        color: #c9d1d9;
+        padding: 5px 12px;
+        border-radius: 6px;
+        text-decoration: none;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      nav a:hover {
+        background: #30363d;
+        color: #58a6ff;
+        border-color: #58a6ff;
+      }
+
+      main {
+        max-width: 1800px;
+        margin: 0 auto;
+        padding: 32px;
+      }
+
+      .diagram-section {
+        margin-bottom: 60px;
+        scroll-margin-top: 120px;
+      }
+
+      .diagram-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      .diagram-header-left h2 {
+        font-size: 18px;
+        color: #e6edf3;
+        font-weight: 600;
+      }
+      .diagram-header-left p {
+        font-size: 13px;
+        color: #8b949e;
+        margin-top: 4px;
+        max-width: 900px;
+        line-height: 1.5;
+      }
+      .diagram-header-right {
+        display: flex;
+        gap: 8px;
+        margin-left: 16px;
+        flex-shrink: 0;
+      }
+
+      .btn {
+        background: #21262d;
+        border: 1px solid #30363d;
+        color: #8b949e;
+        padding: 6px 14px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.15s;
+      }
+      .btn:hover {
+        background: #30363d;
+        color: #c9d1d9;
+        border-color: #8b949e;
+      }
+      .btn-svg {
+        border-color: #3fb950;
+        color: #3fb950;
+      }
+      .btn-svg:hover {
+        background: #1b2e1b;
+        border-color: #3fb950;
+        color: #3fb950;
+      }
+
+      .diagram-wrapper {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 10px;
+        padding: 32px;
+        overflow: auto;
+        position: relative;
+        cursor: grab;
+      }
+      .diagram-wrapper.grabbing {
+        cursor: grabbing;
+      }
+
+      .mermaid {
+        display: flex;
+        justify-content: center;
+      }
+      .mermaid svg {
+        max-width: none !important;
+        height: auto;
+      }
+
+      .zoom-controls {
+        position: absolute;
+        bottom: 12px;
+        right: 12px;
+        display: flex;
+        gap: 4px;
+        z-index: 10;
+      }
+      .zoom-btn {
+        background: #21262d;
+        border: 1px solid #30363d;
+        color: #8b949e;
+        width: 28px;
+        height: 28px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .zoom-btn:hover {
+        background: #30363d;
+        color: #c9d1d9;
+      }
+      .zoom-label {
+        background: #21262d;
+        border: 1px solid #30363d;
+        color: #8b949e;
+        height: 28px;
+        padding: 0 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        display: flex;
+        align-items: center;
+        min-width: 44px;
+        justify-content: center;
+      }
+
+      hr {
+        border: none;
+        border-top: 1px solid #21262d;
+        margin: 0 0 48px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>@sentry/warden — Architecture UML Diagrams</h1>
+      <p>
+        6 diagrams covering domain types, GitHub Action PR review, CLI review,
+        warden-sweep batch flow, and module dependencies
+      </p>
+      <nav>
+        <a href="#diagram-1">1. Core Domain Types</a>
+        <a href="#diagram-2">2. Config &amp; SDK Types</a>
+        <a href="#diagram-3">3. Auto PR Review Flow</a>
+        <a href="#diagram-4">4. CLI Local Review Flow</a>
+        <a href="#diagram-5">5. Warden-Sweep Batch Flow</a>
+        <a href="#diagram-6">6. Module Dependency Graph</a>
+      </nav>
+    </header>
+
+    <main>
+      <!-- ═══════════════════════════════════════════════════════════════
+       DIAGRAM 1 — Core Domain Types
+  ═══════════════════════════════════════════════════════════════ -->
+      <div class="diagram-section" id="diagram-1">
+        <div class="diagram-header">
+          <div class="diagram-header-left">
+            <h2>1. Core Domain Types &amp; Interfaces</h2>
+            <p>
+              All types from <code>src/types/index.ts</code>. Covers Finding,
+              SkillReport, EventContext, PullRequestContext, and all supporting
+              types with their relationships.
+            </p>
+          </div>
+          <div class="diagram-header-right">
+            <button
+              class="btn btn-svg"
+              onclick="downloadSVG('m1', 'warden-01-core-types')"
+            >
+              ↓ Download SVG
+            </button>
+          </div>
+        </div>
+        <div class="diagram-wrapper" id="wrap1">
+          <div class="mermaid" id="m1">
+            classDiagram direction TB class Severity {
+            &lt;&lt;enumeration&gt;&gt; high medium low } class Confidence {
+            &lt;&lt;enumeration&gt;&gt; high medium low } class Location {
+            +string path +number startLine +number endLine } class SuggestedFix
+            { +string description +string diff } class Finding { +string id
+            +Severity severity +Confidence confidence? +string title +string
+            description +string verification +Location location +Location[]
+            additionalLocations? +SuggestedFix suggestedFix? +number elapsedMs?
+            } class UsageStats { +number inputTokens +number outputTokens
+            +number cacheReadInputTokens +number cacheCreationInputTokens
+            +number costUSD } class SkippedFile { +string filename +enum reason
+            [pattern|builtin] +string pattern? } class FileReport { +string
+            filename +number findingCount +number durationMs? +UsageStats usage?
+            } class SkillReport { +string skill +string summary +Finding[]
+            findings +number durationMs +UsageStats usage +number failedHunks
+            +FileReport[] files +string model +object metadata? +SkippedFile[]
+            skippedFiles +number failedExtractions +AuxiliaryUsageEntry[]
+            auxiliaryUsage } class RepositoryContext { +string owner +string
+            name +string fullName +string defaultBranch? } class FileChange {
+            +string filename +enum status
+            [added|removed|modified|renamed|copied|changed|unchanged] +number
+            additions +number deletions +string patch? +object[] chunks? } class
+            PullRequestContext { +number number +string title +string|null body
+            +string author +string baseSha +string headSha +string baseBranch
+            +string headBranch +FileChange[] files } class GitHubEventType {
+            &lt;&lt;enumeration&gt;&gt; pull_request issues issue_comment
+            pull_request_review pull_request_review_comment schedule } class
+            EventContext { +GitHubEventType eventType +string action
+            +RepositoryContext repository +PullRequestContext pullRequest
+            +string repoPath } class RetryConfig { +number maxRetries +number
+            initialDelayMs +number backoffMultiplier +number maxDelayMs } class
+            FixStatus { &lt;&lt;enumeration&gt;&gt; not_attempted
+            attempted_failed resolved } Finding --> Location : location Finding
+            --> SuggestedFix : suggestedFix Finding --> Severity Finding -->
+            Confidence SkillReport --> Finding : contains many SkillReport -->
+            UsageStats : usage SkillReport --> FileReport : files SkillReport
+            --> SkippedFile : skippedFiles FileReport --> UsageStats : optional
+            usage EventContext --> RepositoryContext : repository EventContext
+            --> PullRequestContext : optional EventContext --> GitHubEventType
+            PullRequestContext --> FileChange : changed files
+          </div>
+          <div class="zoom-controls">
+            <button class="zoom-btn" onclick="zoom('wrap1', -0.15)">−</button>
+            <span class="zoom-label" id="zoom-wrap1">100%</span>
+            <button class="zoom-btn" onclick="zoom('wrap1', 0.15)">+</button>
+            <button class="zoom-btn" onclick="resetZoom('wrap1')" title="Reset">
+              ⟳
+            </button>
+          </div>
+        </div>
+      </div>
+      <hr />
+
+      <!-- ═══════════════════════════════════════════════════════════════
+       DIAGRAM 2 — Config & SDK Types
+  ═══════════════════════════════════════════════════════════════ -->
+      <div class="diagram-section" id="diagram-2">
+        <div class="diagram-header">
+          <div class="diagram-header-left">
+            <h2>2. Config &amp; SDK Runtime Types</h2>
+            <p>
+              Types from <code>src/config/schema.ts</code> and the SDK pipeline:
+              WardenConfig, SkillConfig, diff hunk types, trigger executor, and
+              concurrency primitives.
+            </p>
+          </div>
+          <div class="diagram-header-right">
+            <button
+              class="btn btn-svg"
+              onclick="downloadSVG('m2', 'warden-02-config-sdk-types')"
+            >
+              ↓ Download SVG
+            </button>
+          </div>
+        </div>
+        <div class="diagram-wrapper" id="wrap2">
+          <div class="mermaid" id="m2">
+            classDiagram direction TB class TriggerType {
+            &lt;&lt;enumeration&gt;&gt; pull_request local schedule } class
+            SkillTrigger { +TriggerType type +string[] actions
+            +SeverityThreshold failOn? +SeverityThreshold reportOn? +number
+            maxFindings? +boolean reportOnSuccess? +boolean requestChanges?
+            +boolean failCheck? +string model? +number maxTurns?
+            +ConfidenceThreshold minConfidence? +ScheduleConfig schedule? }
+            class ChunkingConfig { +string[] filePatterns +CoalesceConfig
+            coalesce +number maxContextFiles } class CoalesceConfig { +boolean
+            enabled +number maxGapLines +number maxChunkSize } class Defaults {
+            +SeverityThreshold failOn +SeverityThreshold reportOn +number
+            maxFindings +boolean reportOnSuccess? +boolean requestChanges?
+            +boolean failCheck? +string model +number maxTurns
+            +ConfidenceThreshold minConfidence +string[] ignorePaths +string
+            defaultBranch? +ChunkingConfig chunking +number batchDelayMs?
+            +number auxiliaryMaxRetries? } class SkillConfig { +string name
+            +string[] paths +string[] ignorePaths +string remote +SkillTrigger[]
+            triggers +string model +string failOn +string reportOn } class
+            WardenConfig { +number version (literal 1) +Defaults defaults?
+            +SkillConfig[] skills +RunnerConfig runner? +LogsConfig logs? }
+            class SkillDefinition { +string name +string description +string
+            prompt +ToolConfig tools? +string rootDir? } class DiffHunk {
+            +number oldStart +number oldCount +number newStart +number newCount
+            +string header? +string content +string[] lines } class
+            HunkWithContext { +string filename +DiffHunk hunk +string[]
+            contextBefore +string[] contextAfter +number contextStartLine
+            +string language } class PreparedFile { +string filename
+            +HunkWithContext[] hunks } class HunkAnalysisResult { +Finding[]
+            findings +UsageStats usage +boolean failed +boolean extractionFailed
+            +string extractionError? +string extractionPreview?
+            +AuxiliaryUsageEntry[] auxiliaryUsage? } class ResolvedTrigger {
+            +string name +string skill +TriggerType|* type +string[] actions?
+            +string remote? +object filters +SeverityThreshold failOn?
+            +SeverityThreshold reportOn? +number maxFindings? +boolean
+            reportOnSuccess? +boolean requestChanges? +boolean failCheck?
+            +string model? +number maxTurns? +ConfidenceThreshold minConfidence?
+            +ScheduleConfig schedule? } class TriggerExecutorDeps { +Octokit
+            octokit +EventContext context +WardenConfig config +string
+            anthropicApiKey +string claudePath +Semaphore semaphore?
+            +SeverityThreshold globalFailOn? +SeverityThreshold globalReportOn?
+            +number globalMaxFindings +boolean globalRequestChanges? +boolean
+            globalFailCheck? } class TriggerResult { +string triggerName
+            +SkillReport report? +RenderResult renderResult? +SeverityThreshold
+            failOn? +SeverityThreshold reportOn? +ConfidenceThreshold
+            minConfidence? +boolean reportOnSuccess? +boolean requestChanges?
+            +boolean failCheck? +string checkRunUrl? +number maxFindings?
+            +unknown error? } class Semaphore { +number concurrency +acquire()
+            Promise +release() void } class ActionInputs { +string
+            wardenTomlPath +string anthropicApiKey +string claudePath +string
+            githubToken +string model } class RenderResult { +GitHubReview
+            review? +string summaryComment } WardenConfig --> Defaults
+            WardenConfig --> SkillConfig : skills list SkillConfig -->
+            SkillTrigger : triggers list Defaults --> ChunkingConfig
+            ChunkingConfig --> CoalesceConfig PreparedFile --> HunkWithContext :
+            hunks HunkWithContext --> DiffHunk TriggerExecutorDeps -->
+            WardenConfig TriggerExecutorDeps --> EventContext
+            TriggerExecutorDeps --> Semaphore TriggerResult --> SkillReport
+            TriggerResult --> RenderResult ResolvedTrigger --> SkillConfig :
+            matches config ResolvedTrigger --> SkillTrigger : matches trigger
+          </div>
+          <div class="zoom-controls">
+            <button class="zoom-btn" onclick="zoom('wrap2', -0.15)">−</button>
+            <span class="zoom-label" id="zoom-wrap2">100%</span>
+            <button class="zoom-btn" onclick="zoom('wrap2', 0.15)">+</button>
+            <button class="zoom-btn" onclick="resetZoom('wrap2')" title="Reset">
+              ⟳
+            </button>
+          </div>
+        </div>
+      </div>
+      <hr />
+
+      <!-- ═══════════════════════════════════════════════════════════════
+       DIAGRAM 3 — Automated GitHub Action PR Review
+  ═══════════════════════════════════════════════════════════════ -->
+      <div class="diagram-section" id="diagram-3">
+        <div class="diagram-header">
+          <div class="diagram-header-left">
+            <h2>3. Automated GitHub Action PR Review — Full Sequence</h2>
+            <p>
+              End-to-end flow from a GitHub <code>pull_request</code> event
+              through <code>warden.yml</code>, <code>action/main.ts</code>, the
+              4-phase <code>pr-workflow.ts</code> orchestrator, Claude API
+              analysis, and back to GitHub Checks and PR Reviews.
+            </p>
+          </div>
+          <div class="diagram-header-right">
+            <button
+              class="btn btn-svg"
+              onclick="downloadSVG('m3', 'warden-03-auto-pr-review')"
+            >
+              ↓ Download SVG
+            </button>
+          </div>
+        </div>
+        <div class="diagram-wrapper" id="wrap3">
+          <div class="mermaid" id="m3">
+            sequenceDiagram autonumber participant GH as GitHub Event
+            participant WF as .github/workflows/warden.yml participant MA as
+            src/action/main.ts participant PW as
+            src/action/workflow/pr-workflow.ts participant CL as
+            src/config/loader.ts participant EC as src/event/context.ts
+            participant TM as src/triggers/matcher.ts participant GC as GitHub
+            Checks API participant TE as src/action/triggers/executor.ts
+            participant SK as src/skills/ (SKILL.md) participant PF as
+            src/sdk/prepare.ts participant AN as src/sdk/analyze.ts participant
+            PR as src/sdk/prompt.ts participant AI as Anthropic Claude API
+            participant OR as src/output/renderer.ts participant DE as
+            src/output/dedup.ts participant RV as GitHub PR Reviews API
+            participant FE as src/action/fix-evaluation/ GH->>WF: pull_request
+            opened/synchronize/reopened rect rgb(30, 40, 55) Note over WF: CI
+            Bootstrap WF->>WF: checkout, setup-node@v4, pnpm install, pnpm build
+            WF->>WF: create-github-app-token (WARDEN_APP_ID +
+            WARDEN_PRIVATE_KEY) end WF->>MA: node dist/action/index.js (GitHub
+            Action run) rect rgb(30, 55, 40) Note over MA,EC: Phase 1 —
+            Initialize MA->>MA: detect trigger type (pull_request) MA->>PW:
+            runPRWorkflow(inputs) PW->>CL: loadConfig(warden.toml) CL-->>PW:
+            WardenConfig PW->>EC: buildEventContext(github.context) EC->>GH: GET
+            /repos/:owner/:repo/pulls/:number/files GH-->>EC: FileChange[]
+            EC-->>PW: EventContext { eventType, pullRequest, repository }
+            PW->>TM: matchTriggers(config, eventContext) TM-->>PW:
+            ResolvedTrigger[] end rect rgb(55, 30, 40) Note over PW,GC: Phase 2
+            — Create GitHub Checks loop for each ResolvedTrigger PW->>GC:
+            createCheck(trigger.name, status=in_progress) GC-->>PW: checkRunId
+            end end rect rgb(40, 30, 55) Note over PW,AI: Phase 3 — Execute
+            Triggers (parallel via runPool) par parallel trigger execution
+            PW->>TE: executeTrigger(dep, resolvedTrigger) TE->>SK:
+            loadSkillDefinition(skill.name) SK-->>TE: SkillDefinition { prompt,
+            tools, rootDir } TE->>PF: prepareFiles(eventContext, skillConfig)
+            PF->>PF: parsePatches() → DiffHunk[] PF->>PF:
+            splitLargeHunks(maxChunkSize=8000) PF->>PF:
+            coalesceNearbyHunks(maxGapLines=30) PF->>PF: expandContext(20 lines
+            before/after) PF->>PF: groupHunksByFile() PF-->>TE: PreparedFile[]
+            loop for each PreparedFile (runPool concurrency) TE->>AN:
+            analyzeFile(file, skill, prContext) loop for each HunkWithContext
+            AN->>PR: buildHunkSystemPrompt(skill) PR-->>AN: systemPrompt (role +
+            skill_instructions + output_format) AN->>PR:
+            buildHunkUserPrompt(skill, hunk, prContext) PR-->>AN: userPrompt (PR
+            title + diff + changed files list) AN->>AI: query(systemPrompt,
+            userPrompt, tools=[Read,Grep,Glob]) AI-->>AN: raw message content
+            AN->>AN: extractFindingsJson(content) alt extraction fails
+            (malformed JSON) AN->>AI: repair prompt (Haiku model) AI-->>AN:
+            repaired JSON end AN->>AN: filterOutOfRangeFindings(findings, hunk)
+            AN->>AN: normalizeSeverity (critical→high, info→low) AN-->>TE:
+            HunkAnalysisResult{ findings, usage } end end TE->>OR:
+            render(skillReport, renderOptions) OR-->>TE: RenderResult { review?,
+            summaryComment } TE-->>PW: TriggerResult { report, renderResult,
+            failOn } end end rect rgb(40, 50, 30) Note over PW,GC: Phase 4 —
+            Post Reviews and Finalize PW->>DE:
+            deduplicateFindings(allTriggerResults) DE-->>PW: deduplicated
+            findings PW->>RV: listExistingComments(pr.number) RV-->>PW:
+            ExistingComment[] PW->>PW: resolveStaleComments(existing, new) loop
+            for each resolved stale comment PW->>RV: dismissComment(commentId)
+            end PW->>RV: createReview(pr.number, comments, summary) RV-->>PW:
+            review created PW->>FE: evaluateFixes(previousFindings,
+            currentFindings) FE-->>PW: FixStatus per finding loop for each
+            checkRunId PW->>GC: updateCheck(id, conclusion=success|failure,
+            summary) end end MA-->>GH: Action complete (exit 0 or 1 based on
+            failOn)
+          </div>
+          <div class="zoom-controls">
+            <button class="zoom-btn" onclick="zoom('wrap3', -0.15)">−</button>
+            <span class="zoom-label" id="zoom-wrap3">100%</span>
+            <button class="zoom-btn" onclick="zoom('wrap3', 0.15)">+</button>
+            <button class="zoom-btn" onclick="resetZoom('wrap3')" title="Reset">
+              ⟳
+            </button>
+          </div>
+        </div>
+      </div>
+      <hr />
+
+      <!-- ═══════════════════════════════════════════════════════════════
+       DIAGRAM 4 — CLI Local Review
+  ═══════════════════════════════════════════════════════════════ -->
+      <div class="diagram-section" id="diagram-4">
+        <div class="diagram-header">
+          <div class="diagram-header-left">
+            <h2>4. CLI Local Review Flow</h2>
+            <p>
+              Full sequence for <code>warden &lt;file&gt;</code> invocation —
+              argument parsing, local diff building, Claude analysis, Ink/React
+              terminal UI rendering, and the optional interactive
+              <code>--fix</code> mode.
+            </p>
+          </div>
+          <div class="diagram-header-right">
+            <button
+              class="btn btn-svg"
+              onclick="downloadSVG('m4', 'warden-04-cli-local-review')"
+            >
+              ↓ Download SVG
+            </button>
+          </div>
+        </div>
+        <div class="diagram-wrapper" id="wrap4">
+          <div class="mermaid" id="m4">
+            sequenceDiagram autonumber participant U as User / Terminal
+            participant CM as src/cli/main.ts participant AR as src/cli/args.ts
+            participant IN as src/cli/context.ts participant GT as
+            src/cli/git.ts participant CS as src/cli/main.ts (scan) participant
+            CF as src/config/loader.ts participant SK as src/skills/ (SKILL.md)
+            participant PF as src/sdk/prepare.ts participant AN as
+            src/sdk/analyze.ts participant AI as Anthropic Claude API
+            participant TR as src/cli/terminal.ts participant UI as Ink / React
+            (Terminal UI) participant FX as src/cli/fix.ts participant DA as
+            src/cli/diff-apply.ts U->>CM: warden scan src/foo.ts [--fix]
+            [--skill name] CM->>AR: parseArgs(process.argv) AR-->>CM: ParsedArgs
+            { files, skill, fix, json, log } CM->>CF: loadConfig(warden.toml)
+            CF-->>CM: WardenConfig CM->>IN: buildLocalEventContext(args, config)
+            IN->>GT: getChangedFilesWithPatches(base, head) GT->>GT: git diff
+            base..head GT-->>IN: GitFileChange[] IN->>IN: toFileChange(gitFiles)
+            → FileChange[] IN-->>CM: EventContext { eventType=local, repoPath }
+            CM->>CS: runScan(context, config, args) CS->>SK:
+            loadSkillDefinitions(config.skills, args.skill) SK-->>CS:
+            SkillDefinition[] CS->>PF: prepareFiles(context, skillConfig)
+            PF->>PF: parsePatches() → DiffHunk[] PF->>PF: coalesceNearbyHunks()
+            PF->>PF: expandContext(20 lines) PF->>PF: groupHunksByFile()
+            PF-->>CS: PreparedFile[] CS->>AN: runSkill(preparedFiles, skill,
+            config) loop for each PreparedFile (runPool) AN->>AN:
+            buildHunkSystemPrompt(skill) AN->>AN: buildHunkUserPrompt(hunk,
+            context) AN->>AI: query(prompts, tools=[Read,Grep,Glob]) AI-->>AN:
+            message content AN->>AN: extractFindingsJson(content) AN->>AN:
+            filterOutOfRange(findings, hunk) AN-->>CS: HunkAnalysisResult end
+            CS->>CS: aggregateResults() → SkillReport CS-->>CM: SkillReport alt
+            --json flag CM->>U: print JSON to stdout else default terminal
+            output CM->>TR: renderTerminal(report) TR->>UI: React/Ink render
+            (FindingsList component) UI->>U: formatted terminal output with
+            colors, badges end alt --fix flag AND findings exist CM->>UI: render
+            interactive selection (Ink checkbox list) U->>UI: select findings to
+            fix UI-->>CM: selectedFindings[] loop for each selected finding
+            CM->>FX: applyFix(finding, repoPath) FX->>AN: generateFix(finding,
+            fileContent) AN->>AI: query(fix prompt, tools=[Read,Write,Edit])
+            AI-->>AN: unified diff patch AN-->>FX: patch string FX->>DA:
+            applyDiff(patch, filePath) DA->>DA: hunk-aware patch application
+            DA-->>FX: patched file FX->>U: write file to disk end CM->>U:
+            Applied N fixes end CM->>U: Exit (code 0 or 1 per failOn threshold)
+          </div>
+          <div class="zoom-controls">
+            <button class="zoom-btn" onclick="zoom('wrap4', -0.15)">−</button>
+            <span class="zoom-label" id="zoom-wrap4">100%</span>
+            <button class="zoom-btn" onclick="zoom('wrap4', 0.15)">+</button>
+            <button class="zoom-btn" onclick="resetZoom('wrap4')" title="Reset">
+              ⟳
+            </button>
+          </div>
+        </div>
+      </div>
+      <hr />
+
+      <!-- ═══════════════════════════════════════════════════════════════
+       DIAGRAM 5 — Warden-Sweep Batch Flow
+  ═══════════════════════════════════════════════════════════════ -->
+      <div class="diagram-section" id="diagram-5">
+        <div class="diagram-header">
+          <div class="diagram-header-left">
+            <h2>5. Warden-Sweep Manual Batch Scan Flow</h2>
+            <p>
+              Manual on-demand full-repo sweep: 5 phases — Scan (parallel
+              threads), Verify (8 parallel AI subagents), Dedup/Issue creation,
+              Patch (sequential isolated git worktrees), and PR organization.
+            </p>
+          </div>
+          <div class="diagram-header-right">
+            <button
+              class="btn btn-svg"
+              onclick="downloadSVG('m5', 'warden-05-sweep-batch-flow')"
+            >
+              ↓ Download SVG
+            </button>
+          </div>
+        </div>
+        <div class="diagram-wrapper" id="wrap5">
+          <div class="mermaid" id="m5">
+            sequenceDiagram autonumber participant EN as Engineer participant CL
+            as Claude (Orchestrator) participant SM as SKILL.md (Orchestration
+            Guide) participant SC as scripts/scan.py participant WA as warden
+            CLI (per file) participant EX as scripts/extract_findings.py
+            participant VA as Verify Subagent (x8 parallel) participant IP as
+            scripts/index_prs.py participant CI as scripts/create_issue.py
+            participant GH as GitHub Issues API participant PA as Patch Subagent
+            (sequential) participant WT as git worktree (isolated) participant
+            OP as scripts/organize.py participant PR as GitHub Pull Requests API
+            EN->>CL: invoke warden-sweep skill CL->>SM: read SKILL.md
+            (disable-model-invocation: true) SM-->>CL: 5-phase orchestration
+            instructions rect rgb(30, 40, 55) Note over CL,EX: Phase 1 — Scan
+            (Parallel File Analysis) CL->>SC: python scan.py --repo . --output
+            data/ SC->>SC: git ls-files (filter .ts/.js/.py/.go etc.) SC->>SC:
+            read warden.toml → ignorePaths SC->>SC: ThreadPoolExecutor (N
+            threads) loop parallel — each source file SC->>WA: warden scan
+            &lt;file&gt; --json --skill find-warden-bugs WA->>WA: load skill,
+            prepare hunks, call Claude WA-->>SC: findings JSONL (per file log)
+            end SC->>EX: python extract_findings.py data/logs/ EX->>EX:
+            normalize findings, assign IDs (sha256[:8]) EX->>EX: deduplicate by
+            ID EX-->>SC: data/all-findings.jsonl SC-->>CL: scan complete (N
+            findings across M files) end rect rgb(55, 30, 40) Note over CL,VA:
+            Phase 2 — Verify (8 Parallel AI Subagents) CL->>CL: read
+            all-findings.jsonl, batch into groups of 8 loop batches of 8
+            findings par 8 parallel verify subagents CL->>VA: spawn
+            subagent(finding, verify-prompt.md) VA->>VA: Read file (±50 lines
+            context) VA->>VA: Grep for callers / callees VA->>VA: trace data
+            flow upstream VA->>VA: check for existing mitigations VA-->>CL:
+            verdict { findingId, verdict, confidence, reasoning } end end
+            CL->>CL: filter verdict==rejected findings CL->>CL: write
+            data/verified-findings.jsonl CL-->>EN: verification complete (K
+            findings confirmed) end rect rgb(30, 55, 30) Note over CL,GH: Phase
+            3 — Dedup and Issue Creation CL->>IP: python index_prs.py --repo
+            owner/repo IP->>PR: GET /repos/:owner/:repo/pulls (open + closed)
+            PR-->>IP: PR list with titles and bodies IP->>IP: semantic dedup
+            (Haiku model) IP->>IP: cross-reference findings vs existing PRs
+            IP-->>CL: data/pr-index.json CL->>CI: python create_issue.py
+            verified-findings.jsonl CI->>CI: group findings by module / severity
+            CI->>CI: format issue body with finding table CI->>GH: POST
+            /repos/:owner/:repo/issues GH-->>CI: issue URL CI-->>CL: GitHub
+            issue created end rect rgb(55, 45, 20) Note over CL,WT: Phase 4 —
+            Patch (Sequential, Isolated Worktrees) loop sequential — each
+            verified finding CL->>PA: spawn subagent(finding, patch-prompt.md)
+            PA->>WT: git worktree add /tmp/fix-&lt;id&gt; main PA->>WT: cd
+            /tmp/fix-&lt;id&gt; PA->>PA: read target file (full context)
+            PA->>PA: grep for callers/callees (impact analysis) PA->>PA: apply
+            minimal fix (no unrelated changes) PA->>PA: write regression test
+            (foo.test.ts) PA->>PA: git diff (self-review) PA->>WT: git commit -m
+            "fix: &lt;title&gt; [warden]" PA-->>CL: PatchResult { status,
+            filesChanged, testFiles } CL->>WT: git worktree remove
+            /tmp/fix-&lt;id&gt; end end rect rgb(30, 30, 55) Note over CL,PR:
+            Phase 5 — Organize (PRs and Cross-References) CL->>OP: python
+            organize.py data/ --repo owner/repo loop for each patched finding
+            OP->>PR: POST /repos/:owner/:repo/pulls (branch → main) PR-->>OP: PR
+            URL and number OP->>OP: record PR in pr-index.json end OP->>GH:
+            PATCH /repos/:owner/:repo/issues/:id (link PRs in body) OP-->>CL:
+            organize complete CL-->>EN: sweep complete. N findings → K verified
+            → J PRs created end
+          </div>
+          <div class="zoom-controls">
+            <button class="zoom-btn" onclick="zoom('wrap5', -0.15)">−</button>
+            <span class="zoom-label" id="zoom-wrap5">100%</span>
+            <button class="zoom-btn" onclick="zoom('wrap5', 0.15)">+</button>
+            <button class="zoom-btn" onclick="resetZoom('wrap5')" title="Reset">
+              ⟳
+            </button>
+          </div>
+        </div>
+      </div>
+      <hr />
+
+      <!-- ═══════════════════════════════════════════════════════════════
+       DIAGRAM 6 — Module Dependency Graph
+  ═══════════════════════════════════════════════════════════════ -->
+      <div class="diagram-section" id="diagram-6">
+        <div class="diagram-header">
+          <div class="diagram-header-left">
+            <h2>6. Module Dependency &amp; Data Flow Graph</h2>
+            <p>
+              All ~40 modules grouped by layer. Top-down: GitHub Action entry →
+              Config/Event → Triggers → SDK Core → Output → External services.
+              Shows both primary dependencies and data flow.
+            </p>
+          </div>
+          <div class="diagram-header-right">
+            <button
+              class="btn btn-svg"
+              onclick="downloadSVG('m6', 'warden-06-module-deps')"
+            >
+              ↓ Download SVG
+            </button>
+          </div>
+        </div>
+        <div class="diagram-wrapper" id="wrap6">
+          <div class="mermaid" id="m6">
+            graph TB subgraph ENTRY["Entry Points"] direction LR
+            ACT["action/index.ts\n(GitHub Action)"] CLI["cli/main.ts\n(CLI
+            binary)"] end subgraph CONFIG["Config Layer"] direction LR
+            CFL["config/loader.ts"] CFS["config/schema.ts\n(Zod schemas)"]
+            CFW["config/writer.ts"] CFL --> CFS end subgraph EVENT["Event
+            Layer"] direction LR ECX["event/context.ts\n(buildEventContext)"]
+            ECI["event/index.ts"] ECX --> ECI end subgraph ACTION_WF["Action
+            Workflow (GitHub Action only)"] direction TB
+            AMN["action/main.ts\n(router)"]
+            PRW["action/workflow/pr-workflow.ts\n(4-phase orchestrator)"]
+            SCH["action/workflow/schedule.ts\n(cron mode)"]
+            DED["action/workflow/dedup.ts"] REV["action/review/poster.ts"]
+            STL["action/review/stale.ts"] TRG["action/triggers/executor.ts"]
+            TMT["action/triggers/matcher.ts"] CHK["action/checks/manager.ts"]
+            FEV["action/fix-evaluation/index.ts"] INP["action/inputs.ts"] AMN
+            --> PRW AMN --> SCH PRW --> DED PRW --> REV PRW --> STL PRW --> TRG
+            PRW --> TMT PRW --> CHK PRW --> FEV PRW --> INP end subgraph
+            CLI_WF["CLI Workflow (local only)"] direction TB
+            CSCAN["cli/commands/scan.ts"] CFIX["cli/fix.ts"]
+            CARGS["cli/args.ts"] CINP["cli/input.ts"] CGIT["cli/git.ts"]
+            CTERM["cli/terminal.ts"] CDIFF["cli/diff-apply.ts"]
+            CLOG["cli/log-cleanup.ts"] CSCAN --> CFIX CINP --> CGIT end subgraph
+            SDK["SDK Core (shared)"] direction TB
+            PREP["sdk/prepare.ts\n(prepareFiles)"]
+            ANAL["sdk/analyze.ts\n(analyzeHunk / runSkill)"]
+            PRMT["sdk/prompt.ts\n(buildPrompts)"] SKLR["sdk/runner.ts\n(skill
+            runner)"] ANAL --> PRMT ANAL --> PREP ANAL --> SKLR end subgraph
+            DIFF["Diff Layer"] direction LR DPRS["diff/parser.ts"]
+            DCTX["diff/context.ts"] DCLS["diff/classify.ts"]
+            DCOA["diff/coalesce.ts"] DAPL["diff/apply.ts"] DPRS --> DCTX DCTX
+            --> DCOA end subgraph OUTPUT["Output Layer"] direction LR
+            ORND["output/render.ts\n(markdown)"] OFMT["output/format.ts"]
+            OCLI["cli/output/terminal.ts\n(Ink/React)"] ORND --> OFMT end
+            subgraph TYPES["Types & Utils"] direction LR
+            TYP["types/index.ts\n(all domain types)"]
+            UTL["utils/async.ts\n(Semaphore, runPool)"]
+            SEN["sentry.ts\n(tracing)"] end subgraph EXTERNAL["External
+            Services"] direction LR GHAPI["GitHub API\n(Octokit)"]
+            CLAUD["Anthropic Claude API\n(@anthropic-ai/sdk)"] GHOCT["GitHub
+            Checks &amp; Reviews"] end %% Entry → Layers ACT --> AMN CLI -->
+            CARGS CLI --> CSCAN %% Config wiring AMN --> CFL CSCAN --> CFL %%
+            Event wiring PRW --> ECX CINP --> ECX %% SDK usage TRG --> PREP TRG
+            --> ANAL CSCAN --> ANAL PREP --> DIFF ANAL --> CLAUD %% Output
+            wiring TRG --> ORND CSCAN --> OCLI REV --> GHOCT CHK --> GHOCT PRW
+            --> GHAPI TRG --> GHAPI %% Types used everywhere TYP -.->|types| SDK
+            TYP -.->|types| ACTION_WF TYP -.->|types| CLI_WF TYP -.->|types|
+            OUTPUT UTL -.->|Semaphore| TRG SEN -.->|tracing| ANAL style ENTRY
+            fill:#1a2535,stroke:#58a6ff,color:#c9d1d9 style CONFIG
+            fill:#1a2a1a,stroke:#3fb950,color:#c9d1d9 style EVENT
+            fill:#251a2a,stroke:#bc8cff,color:#c9d1d9 style ACTION_WF
+            fill:#2a1a1a,stroke:#f85149,color:#c9d1d9 style CLI_WF
+            fill:#2a2a1a,stroke:#e3b341,color:#c9d1d9 style SDK
+            fill:#1a2535,stroke:#58a6ff,color:#c9d1d9 style DIFF
+            fill:#1a2a25,stroke:#3fb950,color:#c9d1d9 style OUTPUT
+            fill:#2a1a2a,stroke:#bc8cff,color:#c9d1d9 style TYPES
+            fill:#252525,stroke:#8b949e,color:#c9d1d9 style EXTERNAL
+            fill:#1a1a1a,stroke:#30363d,color:#8b949e
+          </div>
+          <div class="zoom-controls">
+            <button class="zoom-btn" onclick="zoom('wrap6', -0.15)">−</button>
+            <span class="zoom-label" id="zoom-wrap6">100%</span>
+            <button class="zoom-btn" onclick="zoom('wrap6', 0.15)">+</button>
+            <button class="zoom-btn" onclick="resetZoom('wrap6')" title="Reset">
+              ⟳
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      mermaid.initialize({
+        startOnLoad: true,
+        theme: "dark",
+        themeVariables: {
+          primaryColor: "#1f6feb",
+          primaryTextColor: "#c9d1d9",
+          primaryBorderColor: "#30363d",
+          lineColor: "#58a6ff",
+          secondaryColor: "#161b22",
+          tertiaryColor: "#0d1117",
+          background: "#0d1117",
+          mainBkg: "#161b22",
+          nodeBorder: "#30363d",
+          clusterBkg: "#21262d",
+          clusterBorder: "#30363d",
+          titleColor: "#e6edf3",
+          edgeLabelBackground: "#21262d",
+          actorBkg: "#1f2937",
+          actorBorder: "#374151",
+          actorTextColor: "#c9d1d9",
+          actorLineColor: "#4b5563",
+          signalColor: "#58a6ff",
+          signalTextColor: "#c9d1d9",
+          labelBoxBkgColor: "#21262d",
+          labelBoxBorderColor: "#30363d",
+          labelTextColor: "#c9d1d9",
+          noteBkgColor: "#2d333b",
+          noteBorderColor: "#444c56",
+          noteTextColor: "#adbac7",
+          activationBkgColor: "#1f6feb33",
+          activationBorderColor: "#58a6ff",
+          classText: "#c9d1d9",
+        },
+        sequence: {
+          diagramMarginX: 50,
+          diagramMarginY: 30,
+          actorMargin: 60,
+          width: 200,
+          height: 65,
+          boxMargin: 10,
+          messageMargin: 35,
+          mirrorActors: false,
+          useMaxWidth: false,
+        },
+        flowchart: {
+          htmlLabels: true,
+          useMaxWidth: false,
+          curve: "basis",
+        },
+        classDiagram: {
+          useMaxWidth: false,
+        },
+      });
+
+      // ──────────────────────────────────────────────────────────────
+      //  Zoom state
+      // ──────────────────────────────────────────────────────────────
+      const zoomState = {};
+
+      function getInner(wrapId) {
+        return document.querySelector(`#${wrapId} .mermaid`);
+      }
+
+      function zoom(wrapId, delta) {
+        if (!zoomState[wrapId]) zoomState[wrapId] = 1;
+        zoomState[wrapId] = Math.max(
+          0.2,
+          Math.min(5, zoomState[wrapId] + delta),
+        );
+        applyZoom(wrapId);
+      }
+
+      function resetZoom(wrapId) {
+        zoomState[wrapId] = 1;
+        applyZoom(wrapId);
+      }
+
+      function applyZoom(wrapId) {
+        const el = getInner(wrapId);
+        if (!el) return;
+        el.style.transform = `scale(${zoomState[wrapId]})`;
+        el.style.transformOrigin = "top center";
+        const label = document.getElementById(`zoom-${wrapId}`);
+        if (label)
+          label.textContent = Math.round(zoomState[wrapId] * 100) + "%";
+      }
+
+      // ──────────────────────────────────────────────────────────────
+      //  Drag / pan
+      // ──────────────────────────────────────────────────────────────
+      document.querySelectorAll(".diagram-wrapper").forEach((wrap) => {
+        let isDragging = false,
+          startX,
+          startY,
+          scrollLeft,
+          scrollTop;
+
+        wrap.addEventListener("mousedown", (e) => {
+          if (e.target.closest("button")) return;
+          isDragging = true;
+          wrap.classList.add("grabbing");
+          startX = e.pageX - wrap.offsetLeft;
+          startY = e.pageY - wrap.offsetTop;
+          scrollLeft = wrap.scrollLeft;
+          scrollTop = wrap.scrollTop;
+        });
+
+        document.addEventListener("mouseup", () => {
+          isDragging = false;
+          wrap.classList.remove("grabbing");
+        });
+        document.addEventListener("mousemove", (e) => {
+          if (!isDragging) return;
+          e.preventDefault();
+          wrap.scrollLeft = scrollLeft - (e.pageX - wrap.offsetLeft - startX);
+          wrap.scrollTop = scrollTop - (e.pageY - wrap.offsetTop - startY);
+        });
+      });
+
+      // ──────────────────────────────────────────────────────────────
+      //  SVG download
+      // ──────────────────────────────────────────────────────────────
+      function downloadSVG(mermaidId, filename) {
+        const container = document.getElementById(mermaidId);
+        if (!container) return;
+        const svgEl = container.querySelector("svg");
+        if (!svgEl) {
+          alert("Diagram not rendered yet — please wait a moment.");
+          return;
+        }
+
+        // Clone and add a white background for external viewers
+        const clone = svgEl.cloneNode(true);
+        clone.style.background = "#0d1117";
+        clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+
+        const svgData = new XMLSerializer().serializeToString(clone);
+        const blob = new Blob([svgData], {
+          type: "image/svg+xml;charset=utf-8",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename + ".svg";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    </script>
+  </body>
+</html>

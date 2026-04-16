@@ -18,8 +18,26 @@ type = "pull_request"
 actions = ["opened", "synchronize", "reopened"]
 
 [[skills]]
+name = "architecture-review"
+paths = ["src/**/*.ts"]
+ignorePaths = ["src/**/*.test.ts"]
+
+[[skills.triggers]]
+type = "pull_request"
+actions = ["opened", "synchronize", "reopened"]
+
+[[skills]]
+name = "testing-guidelines"
+paths = ["src/**/*.test.ts"]
+
+[[skills.triggers]]
+type = "pull_request"
+actions = ["opened", "synchronize", "reopened"]
+
+[[skills]]
 name = "code-simplifier"
 remote = "getsentry/sentry-skills"
 
 [[skills.triggers]]
-type = "local"
+type = "pull_request"
+actions = ["opened", "synchronize", "reopened"]

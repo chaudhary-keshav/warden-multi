@@ -1,7 +1,12 @@
-import type { ResolvedTrigger } from '../config/loader.js';
-import type { TriggerType } from '../config/schema.js';
-import { SEVERITY_ORDER } from '../types/index.js';
-import type { EventContext, Severity, SeverityThreshold, SkillReport } from '../types/index.js';
+import type { ResolvedTrigger } from "../config/loader.js";
+import type { TriggerType } from "../config/schema.js";
+import { SEVERITY_ORDER } from "../types/index.js";
+import type {
+  EventContext,
+  Severity,
+  SeverityThreshold,
+  SkillReport,
+} from "../types/index.js";
 
 /** Maximum number of patterns to cache (LRU eviction when exceeded) */
 const GLOB_CACHE_MAX_SIZE = 1000;
@@ -34,20 +39,20 @@ function globToRegex(pattern: string): RegExp {
   // Use placeholders to avoid replacement conflicts
   let regexPattern = pattern
     // First, replace glob patterns with placeholders
-    .replace(/\*\*\//g, '\0GLOBSTAR_SLASH\0')
-    .replace(/\*\*/g, '\0GLOBSTAR\0')
-    .replace(/\*/g, '\0STAR\0')
-    .replace(/\?/g, '\0QUESTION\0');
+    .replace(/\*\*\//g, "\0GLOBSTAR_SLASH\0")
+    .replace(/\*\*/g, "\0GLOBSTAR\0")
+    .replace(/\*/g, "\0STAR\0")
+    .replace(/\?/g, "\0QUESTION\0");
 
   // Escape regex special characters
-  regexPattern = regexPattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  regexPattern = regexPattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
 
   // Replace placeholders with regex patterns
   regexPattern = regexPattern
-    .replace(/\0GLOBSTAR_SLASH\0/g, '(?:.*/)?')  // **/ matches zero or more directories
-    .replace(/\0GLOBSTAR\0/g, '.*')               // ** matches anything
-    .replace(/\0STAR\0/g, '[^/]*')                // * matches anything except /
-    .replace(/\0QUESTION\0/g, '[^/]');            // ? matches single char except /
+    .replace(/\0GLOBSTAR_SLASH\0/g, "(?:.*/)?") // **/ matches zero or more directories
+    .replace(/\0GLOBSTAR\0/g, ".*") // ** matches anything
+    .replace(/\0STAR\0/g, "[^/]*") // * matches anything except /
+    .replace(/\0QUESTION\0/g, "[^/]"); // ? matches single char except /
 
   const regex = new RegExp(`^${regexPattern}$`);
 
@@ -77,18 +82,21 @@ export function matchGlob(pattern: string, path: string): boolean {
  */
 function matchPathFilters(
   filters: { paths?: string[]; ignorePaths?: string[] },
-  filenames: string[] | undefined
+  filenames: string[] | undefined,
 ): boolean {
   const { paths: pathPatterns, ignorePaths: ignorePatterns } = filters;
 
   // Fail trigger match when path filters are defined but filenames unavailable
-  if ((pathPatterns || ignorePatterns) && (!filenames || filenames.length === 0)) {
+  if (
+    (pathPatterns || ignorePatterns) &&
+    (!filenames || filenames.length === 0)
+  ) {
     return false;
   }
 
   if (pathPatterns && filenames) {
     const hasMatch = filenames.some((file) =>
-      pathPatterns.some((pattern) => matchGlob(pattern, file))
+      pathPatterns.some((pattern) => matchGlob(pattern, file)),
     );
     if (!hasMatch) {
       return false;
@@ -97,7 +105,7 @@ function matchPathFilters(
 
   if (ignorePatterns && filenames) {
     const allIgnored = filenames.every((file) =>
-      ignorePatterns.some((pattern) => matchGlob(pattern, file))
+      ignorePatterns.some((pattern) => matchGlob(pattern, file)),
     );
     if (allIgnored) {
       return false;
@@ -113,7 +121,7 @@ function matchPathFilters(
  */
 export function filterContextByPaths(
   context: EventContext,
-  filters: { paths?: string[]; ignorePaths?: string[] }
+  filters: { paths?: string[]; ignorePaths?: string[] },
 ): EventContext {
   const { paths: pathPatterns, ignorePaths: ignorePatterns } = filters;
 
@@ -131,13 +139,13 @@ export function filterContextByPaths(
 
   if (pathPatterns) {
     files = files.filter((f) =>
-      pathPatterns.some((pattern) => matchGlob(pattern, f.filename))
+      pathPatterns.some((pattern) => matchGlob(pattern, f.filename)),
     );
   }
 
   if (ignorePatterns) {
     files = files.filter(
-      (f) => !ignorePatterns.some((pattern) => matchGlob(pattern, f.filename))
+      (f) => !ignorePatterns.some((pattern) => matchGlob(pattern, f.filename)),
     );
   }
 
@@ -162,26 +170,29 @@ export function filterContextByPaths(
 export function matchTrigger(
   trigger: ResolvedTrigger,
   context: EventContext,
-  environment?: TriggerType | 'github'
+  environment?: TriggerType | "github",
 ): boolean {
   // Wildcard triggers match everywhere, only check path filters
-  if (trigger.type === '*') {
+  if (trigger.type === "*") {
     const filenames = context.pullRequest?.files.map((f) => f.filename);
     return matchPathFilters(trigger.filters, filenames);
   }
 
   // Type-based matching with early returns
-  if (trigger.type === 'local') {
-    if (environment !== 'local') {
+  if (trigger.type === "local") {
+    if (environment !== "local") {
       return false;
     }
   }
 
-  if (trigger.type === 'pull_request') {
-    if (environment === 'local') {
+  if (trigger.type === "pull_request") {
+    if (environment === "local") {
       // Local mode runs all skills — skip event/action checks, fall through to path filters
     } else {
-      if (context.eventType !== 'pull_request' && context.eventType !== 'pull_request_target') {
+      if (
+        context.eventType !== "pull_request" &&
+        context.eventType !== "pull_request_target"
+      ) {
         return false;
       }
       if (!trigger.actions?.includes(context.action)) {
@@ -190,8 +201,8 @@ export function matchTrigger(
     }
   }
 
-  if (trigger.type === 'schedule') {
-    if (context.eventType !== 'schedule') {
+  if (trigger.type === "schedule") {
+    if (context.eventType !== "schedule") {
       return false;
     }
     return (context.pullRequest?.files.length ?? 0) > 0;
@@ -206,8 +217,11 @@ export function matchTrigger(
  * Check if a report has any findings at or above the given severity threshold.
  * Returns false if failOn is 'off' (disabled).
  */
-export function shouldFail(report: SkillReport, failOn: SeverityThreshold): boolean {
-  if (failOn === 'off') return false;
+export function shouldFail(
+  report: SkillReport,
+  failOn: SeverityThreshold,
+): boolean {
+  if (failOn === "off") return false;
   const threshold = SEVERITY_ORDER[failOn];
   return report.findings.some((f) => SEVERITY_ORDER[f.severity] <= threshold);
 }
@@ -216,19 +230,26 @@ export function shouldFail(report: SkillReport, failOn: SeverityThreshold): bool
  * Count findings at or above the given severity threshold.
  * Returns 0 if failOn is 'off' (disabled).
  */
-export function countFindingsAtOrAbove(report: SkillReport, failOn: SeverityThreshold): number {
-  if (failOn === 'off') return 0;
+export function countFindingsAtOrAbove(
+  report: SkillReport,
+  failOn: SeverityThreshold,
+): number {
+  if (failOn === "off") return 0;
   const threshold = SEVERITY_ORDER[failOn];
-  return report.findings.filter((f) => SEVERITY_ORDER[f.severity] <= threshold).length;
+  return report.findings.filter((f) => SEVERITY_ORDER[f.severity] <= threshold)
+    .length;
 }
 
 /**
  * Count findings of a specific severity across multiple reports.
  */
-export function countSeverity(reports: SkillReport[], severity: Severity): number {
+export function countSeverity(
+  reports: SkillReport[],
+  severity: Severity,
+): number {
   return reports.reduce(
     (count, report) =>
       count + report.findings.filter((f) => f.severity === severity).length,
-    0
+    0,
   );
 }

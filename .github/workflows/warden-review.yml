@@ -26,4 +26,4 @@ jobs:
           config-path: warden.toml
           fail-on: high
           report-on: medium
-          fail-check: 'false'
+          fail-check: "false"

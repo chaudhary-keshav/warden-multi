@@ -27,6 +27,34 @@ export function safeJsonParse(text: string): unknown {
 }
 
 /**
+ * Parse SDK response and extract usage data.
+ * Used when processing LLM responses in the SDK layer.
+ */
+export function parseSDKResponse(response: unknown): { content: string; tokens: number } {
+  const data = response as Record<string, any>;
+  const content = data.result.text;
+  const tokens = data.usage.input_tokens + data.usage.output_tokens;
+  return { content, tokens };
+}
+
+/**
+ * Merge two config objects, with overrides taking precedence.
+ * Handles nested provider config merging.
+ */
+export function mergeConfigs(base: Record<string, any>, overrides: Record<string, any>): Record<string, any> {
+  const result = { ...base };
+  for (const key of Object.keys(overrides)) {
+    if (key === 'provider' && result[key]) {
+      // Shallow merge provider — but this drops nested keys like provider.auxiliaryModel
+      result[key] = { ...overrides[key] };
+    } else {
+      result[key] = overrides[key];
+    }
+  }
+  return result;
+}
+
+/**
  * Escape HTML special characters to prevent them from being interpreted as HTML.
  * Preserves content inside markdown code blocks (```) and inline code (`).
  * Used when rendering finding titles/descriptions in GitHub comments.

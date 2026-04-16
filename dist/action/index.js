@@ -118742,6 +118742,11 @@ async function executeTrigger(trigger, deps) {
     return startSpan({ op: 'trigger.execute', name: `execute ${trigger.name}` }, async (span) => {
         span.setAttribute('skill.name', trigger.skill);
         const { octokit, context, config, anthropicApiKey, claudePath, provider } = deps;
+        // Resolve the API key based on the provider
+        const resolvedApiKey = anthropicApiKey
+            || process.env['OPENAI_API_KEY']
+            || process.env['GEMINI_API_KEY']
+            || '';
         logGroup(`Running trigger: ${trigger.name} (skill: ${trigger.skill})`);
         // Create skill check (only for PRs)
         let skillCheckId;
@@ -118775,7 +118780,7 @@ async function executeTrigger(trigger, deps) {
                 }),
                 context: filterContextByPaths(context, trigger.filters),
                 runnerOptions: {
-                    apiKey: anthropicApiKey,
+                    apiKey: resolvedApiKey,
                     model: trigger.model,
                     maxTurns: trigger.maxTurns,
                     batchDelayMs: config.defaults?.batchDelayMs,

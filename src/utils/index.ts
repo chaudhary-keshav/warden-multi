@@ -12,6 +12,20 @@ export type { ExecOptions } from "./exec.js";
 /** Default concurrency for parallel trigger/skill execution */
 export const DEFAULT_CONCURRENCY = 4;
 
+/** Default max file concurrency */
+export const DEFAULT_FILE_CONCURRENCY = 8;
+
+/**
+ * Safely parse a JSON string, returning undefined on failure.
+ */
+export function safeJsonParse(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Escape HTML special characters to prevent them from being interpreted as HTML.
  * Preserves content inside markdown code blocks (```) and inline code (`).

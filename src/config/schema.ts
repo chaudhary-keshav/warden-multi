@@ -7,6 +7,33 @@ import {
 // Provider names supported by warden-multi
 export const ProviderNameSchema = z.enum(["claude", "openai", "gemini"]);
 
+// MCP server configuration
+const McpStdioConfigSchema = z.object({
+  type: z.literal("stdio").optional(),
+  command: z.string(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+});
+
+const McpSSEConfigSchema = z.object({
+  type: z.literal("sse"),
+  url: z.string(),
+  headers: z.record(z.string(), z.string()).optional(),
+});
+
+const McpHttpConfigSchema = z.object({
+  type: z.literal("http"),
+  url: z.string(),
+  headers: z.record(z.string(), z.string()).optional(),
+});
+
+export const McpServerConfigSchema = z.union([
+  McpStdioConfigSchema,
+  McpSSEConfigSchema,
+  McpHttpConfigSchema,
+]);
+export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
+
 // Provider configuration
 export const ProviderConfigSchema = z.object({
   /** Which LLM provider to use. Default: 'openai' */
@@ -224,6 +251,8 @@ export const WardenConfigSchema = z
     skills: z.array(SkillConfigSchema).default([]),
     runner: RunnerConfigSchema.optional(),
     logs: LogsConfigSchema.optional(),
+    /** MCP server configurations keyed by server name */
+    mcp: z.record(z.string(), McpServerConfigSchema).optional(),
   })
   .superRefine((config, ctx) => {
     const names = config.skills.map((s) => s.name);

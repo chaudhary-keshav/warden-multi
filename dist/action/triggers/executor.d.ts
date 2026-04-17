@@ -4,13 +4,14 @@
  * Executes a single trigger and manages associated GitHub check runs.
  * Extracted from main.ts to enable isolated testing and clearer dependencies.
  */
-import type { Octokit } from '@octokit/rest';
-import type { ResolvedTrigger } from '../../config/loader.js';
-import type { WardenConfig } from '../../config/schema.js';
-import type { EventContext, SkillReport, SeverityThreshold, ConfidenceThreshold } from '../../types/index.js';
-import type { RenderResult } from '../../output/types.js';
-import type { Semaphore } from '../../utils/index.js';
-import type { LLMProvider } from '../../providers/types.js';
+import type { Octokit } from "@octokit/rest";
+import type { ResolvedTrigger } from "../../config/loader.js";
+import type { WardenConfig } from "../../config/schema.js";
+import type { EventContext, SkillReport, SeverityThreshold, ConfidenceThreshold } from "../../types/index.js";
+import type { RenderResult } from "../../output/types.js";
+import type { Semaphore } from "../../utils/index.js";
+import type { LLMProvider } from "../../providers/types.js";
+import type { McpServerConfig } from "../../providers/types.js";
 /**
  * Dependencies required for trigger execution.
  * Making these explicit enables testing with mock implementations.
@@ -35,6 +36,8 @@ export interface TriggerExecutorDeps {
     globalFailCheck?: boolean;
     /** Global semaphore for limiting concurrent file analyses across triggers */
     semaphore?: Semaphore;
+    /** MCP server configurations */
+    mcpServers?: Record<string, McpServerConfig>;
 }
 /**
  * Result from executing a single trigger.

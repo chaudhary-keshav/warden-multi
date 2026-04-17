@@ -35,9 +35,8 @@ import { logGroup, logGroupEnd } from "../workflow/base.js";
 import { DEFAULT_FILE_CONCURRENCY } from "../../sdk/types.js";
 import type { Semaphore } from "../../utils/index.js";
 import { Verbosity } from "../../cli/output/verbosity.js";
-import { createProvider } from "../../providers/index.js";
 import type { LLMProvider } from "../../providers/types.js";
-import type { ProviderName } from "../../providers/types.js";
+import type { McpServerConfig } from "../../providers/types.js";
 
 /** Log-mode output for CI: no TTY, no color. */
 const CI_OUTPUT_MODE: OutputMode = {
@@ -74,6 +73,8 @@ export interface TriggerExecutorDeps {
   globalFailCheck?: boolean;
   /** Global semaphore for limiting concurrent file analyses across triggers */
   semaphore?: Semaphore;
+  /** MCP server configurations */
+  mcpServers?: Record<string, McpServerConfig>;
 }
 
 /**
@@ -177,6 +178,7 @@ export async function executeTrigger(
             pathToClaudeCodeExecutable: claudePath,
             auxiliaryMaxRetries: config.defaults?.auxiliaryMaxRetries,
             provider,
+            mcpServers: deps.mcpServers,
           },
         };
 

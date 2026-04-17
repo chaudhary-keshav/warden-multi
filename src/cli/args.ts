@@ -45,6 +45,8 @@ export const CLIOptionsSchema = z.object({
   offline: z.boolean().default(false),
   /** Stop after first finding */
   failFast: z.boolean().default(false),
+  /** LLM provider to use (claude, openai, gemini) */
+  provider: z.enum(["claude", "openai", "gemini"]).optional(),
 });
 
 export type CLIOptions = z.infer<typeof CLIOptionsSchema>;

@@ -4,18 +4,22 @@
  * Executes a single trigger and manages associated GitHub check runs.
  * Extracted from main.ts to enable isolated testing and clearer dependencies.
  */
-import { Sentry } from '../../sentry.js';
-import { ActionFailedError } from '../workflow/base.js';
-import { resolveSkillAsync } from '../../skills/loader.js';
-import { filterContextByPaths } from '../../triggers/matcher.js';
-import { runSkillTask, createDefaultCallbacks } from '../../cli/output/tasks.js';
-import { renderSkillReport } from '../../output/renderer.js';
-import { createSkillCheck, updateSkillCheck, failSkillCheck, } from '../../output/github-checks.js';
-import { logGroup, logGroupEnd } from '../workflow/base.js';
-import { DEFAULT_FILE_CONCURRENCY } from '../../sdk/types.js';
-import { Verbosity } from '../../cli/output/verbosity.js';
+import { Sentry } from "../../sentry.js";
+import { ActionFailedError } from "../workflow/base.js";
+import { resolveSkillAsync } from "../../skills/loader.js";
+import { filterContextByPaths } from "../../triggers/matcher.js";
+import { runSkillTask, createDefaultCallbacks, } from "../../cli/output/tasks.js";
+import { renderSkillReport } from "../../output/renderer.js";
+import { createSkillCheck, updateSkillCheck, failSkillCheck, } from "../../output/github-checks.js";
+import { logGroup, logGroupEnd } from "../workflow/base.js";
+import { DEFAULT_FILE_CONCURRENCY } from "../../sdk/types.js";
+import { Verbosity } from "../../cli/output/verbosity.js";
 /** Log-mode output for CI: no TTY, no color. */
-const CI_OUTPUT_MODE = { isTTY: false, supportsColor: false, columns: 120 };
+const CI_OUTPUT_MODE = {
+    isTTY: false,
+    supportsColor: false,
+    columns: 120,
+};
 // -----------------------------------------------------------------------------
 // Executor
 // -----------------------------------------------------------------------------
@@ -28,9 +32,14 @@ const CI_OUTPUT_MODE = { isTTY: false, supportsColor: false, columns: 120 };
  * - Rendering results for GitHub review
  */
 export async function executeTrigger(trigger, deps) {
-    return Sentry.startSpan({ op: 'trigger.execute', name: `execute ${trigger.name}` }, async (span) => {
-        span.setAttribute('skill.name', trigger.skill);
-        const { octokit, context, config, anthropicApiKey, claudePath, provider } = deps;
+    return Sentry.startSpan({ op: "trigger.execute", name: `execute ${trigger.name}` }, async (span) => {
+        span.setAttribute("skill.name", trigger.skill);
+        const { octokit, context, config, anthropicApiKey, claudePath, provider, } = deps;
+        // Resolve the API key based on the provider
+        const resolvedApiKey = anthropicApiKey ||
+            process.env["OPENAI_API_KEY"] ||
+            process.env["GEMINI_API_KEY"] ||
+            "";
         logGroup(`Running trigger: ${trigger.name} (skill: ${trigger.skill})`);
         // Create skill check (only for PRs)
         let skillCheckId;
@@ -51,7 +60,7 @@ export async function executeTrigger(trigger, deps) {
         }
         const failOn = trigger.failOn ?? deps.globalFailOn;
         const reportOn = trigger.reportOn ?? deps.globalReportOn;
-        const minConfidence = trigger.minConfidence ?? 'medium';
+        const minConfidence = trigger.minConfidence ?? "medium";
         const requestChanges = trigger.requestChanges ?? deps.globalRequestChanges;
         const failCheck = trigger.failCheck ?? deps.globalFailCheck;
         try {
@@ -64,7 +73,7 @@ export async function executeTrigger(trigger, deps) {
                 }),
                 context: filterContextByPaths(context, trigger.filters),
                 runnerOptions: {
-                    apiKey: anthropicApiKey,
+                    apiKey: resolvedApiKey,
                     model: trigger.model,
                     maxTurns: trigger.maxTurns,
                     batchDelayMs: config.defaults?.batchDelayMs,
@@ -72,14 +81,17 @@ export async function executeTrigger(trigger, deps) {
                     pathToClaudeCodeExecutable: claudePath,
                     auxiliaryMaxRetries: config.defaults?.auxiliaryMaxRetries,
                     provider,
+                    mcpServers: deps.mcpServers,
                 },
             };
             const callbacks = createDefaultCallbacks([taskOptions], CI_OUTPUT_MODE, Verbosity.Normal);
-            const fileConcurrency = deps.semaphore ? Number.MAX_SAFE_INTEGER : DEFAULT_FILE_CONCURRENCY;
+            const fileConcurrency = deps.semaphore
+                ? Number.MAX_SAFE_INTEGER
+                : DEFAULT_FILE_CONCURRENCY;
             const result = await runSkillTask(taskOptions, fileConcurrency, callbacks, deps.semaphore);
             const report = result.report;
             if (!report) {
-                throw result.error ?? new Error('Skill task returned no report');
+                throw result.error ?? new Error("Skill task returned no report");
             }
             console.log(`Found ${report.findings.length} findings`);
             // Update skill check with results
@@ -100,7 +112,7 @@ export async function executeTrigger(trigger, deps) {
                 }
             }
             const maxFindings = trigger.maxFindings ?? deps.globalMaxFindings;
-            const renderResult = reportOn !== 'off'
+            const renderResult = reportOn !== "off"
                 ? renderSkillReport(report, {
                     maxFindings,
                     reportOn,
@@ -130,7 +142,7 @@ export async function executeTrigger(trigger, deps) {
             if (error instanceof ActionFailedError)
                 throw error;
             Sentry.captureException(error, {
-                tags: { 'trigger.name': trigger.name, 'skill.name': trigger.skill },
+                tags: { "trigger.name": trigger.name, "skill.name": trigger.skill },
             });
             // Mark skill check as failed
             if (skillCheckId && context.pullRequest) {

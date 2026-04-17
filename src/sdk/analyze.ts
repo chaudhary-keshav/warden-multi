@@ -1,4 +1,4 @@
-import { query, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query, type SDKResultMessage, type McpServerConfig as ClaudeMcpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import type { SkillDefinition } from "../config/schema.js";
 import type { Finding, RetryConfig } from "../types/index.js";
 import { getHunkLineRange, type HunkWithContext } from "../diff/index.js";
@@ -182,9 +182,12 @@ async function executeQueryWithProvider(
   userPrompt: string,
   repoPath: string,
   options: SkillRunnerOptions,
-  skillName: string,
+  _skillName: string,
 ): Promise<QueryExecutionResult> {
-  const provider = options.provider!;
+  const provider = options.provider;
+  if (!provider) {
+    throw new Error("Provider is required for executeQueryWithProvider");
+  }
   const queryResult = await provider.query({
     systemPrompt,
     userPrompt,
@@ -193,6 +196,7 @@ async function executeQueryWithProvider(
     repoPath,
     apiKey: options.apiKey,
     abortSignal: options.abortController?.signal,
+    mcpServers: options.mcpServers,
   });
 
   if (!queryResult.success) {
@@ -313,6 +317,15 @@ async function executeQuery(
           model,
           abortController,
           pathToClaudeCodeExecutable,
+          // Pass MCP servers natively for Claude SDK
+          ...(options.mcpServers && Object.keys(options.mcpServers).length > 0
+            ? {
+                mcpServers: options.mcpServers as Record<
+                  string,
+                  ClaudeMcpServerConfig
+                >,
+              }
+            : {}),
           stderr: (data: string) => {
             stderrChunks.push(data);
           },

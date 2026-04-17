@@ -3,34 +3,35 @@
  *
  * Handles pull_request and push events.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { Sentry, logger, emitStaleResolutionMetric, setGlobalAttributes, emitRunMetric } from '../../sentry.js';
-import { loadWardenConfig, resolveSkillConfigs, ConfigLoadError } from '../../config/loader.js';
-import { buildEventContext } from '../../event/context.js';
-import { matchTrigger, shouldFail, countFindingsAtOrAbove } from '../../triggers/matcher.js';
-import { fetchExistingComments } from '../../output/dedup.js';
-import { buildAnalyzedScope, findStaleComments, resolveStaleComments } from '../../output/stale.js';
-import { filterFindings } from '../../types/index.js';
-import { runPool, Semaphore } from '../../utils/index.js';
-import { evaluateFixAttempts, postThreadReply } from '../fix-evaluation/index.js';
-import { logAction, warnAction } from '../../cli/output/tty.js';
-import { formatCost, formatTokens, formatDuration } from '../../cli/output/formatters.js';
-import { findBotReviewState } from '../review-state.js';
-import { executeTrigger } from '../triggers/executor.js';
-import { postTriggerReview } from '../review/poster.js';
-import { shouldResolveStaleComments } from '../review/coordination.js';
-import { createProvider } from '../../providers/index.js';
-import { createCoreCheck, updateCoreCheck, buildCoreSummaryData, determineCoreConclusion, } from '../checks/manager.js';
-import { setOutput, setFailed, logGroup, logGroupEnd, findClaudeCodeExecutable, handleTriggerErrors, collectTriggerErrors, computeWorkflowOutputs, setWorkflowOutputs, getAuthenticatedBotLogin, writeFindingsOutput, } from './base.js';
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { Sentry, logger, emitStaleResolutionMetric, setGlobalAttributes, emitRunMetric, } from "../../sentry.js";
+import { loadWardenConfig, resolveSkillConfigs, ConfigLoadError, } from "../../config/loader.js";
+import { buildEventContext } from "../../event/context.js";
+import { discoverAllSkills } from "../../skills/loader.js";
+import { matchTrigger, shouldFail, countFindingsAtOrAbove, } from "../../triggers/matcher.js";
+import { fetchExistingComments } from "../../output/dedup.js";
+import { buildAnalyzedScope, findStaleComments, resolveStaleComments, } from "../../output/stale.js";
+import { filterFindings } from "../../types/index.js";
+import { runPool, Semaphore } from "../../utils/index.js";
+import { evaluateFixAttempts, postThreadReply, } from "../fix-evaluation/index.js";
+import { logAction, warnAction } from "../../cli/output/tty.js";
+import { formatCost, formatTokens, formatDuration, } from "../../cli/output/formatters.js";
+import { findBotReviewState } from "../review-state.js";
+import { executeTrigger } from "../triggers/executor.js";
+import { postTriggerReview } from "../review/poster.js";
+import { shouldResolveStaleComments } from "../review/coordination.js";
+import { createProvider } from "../../providers/index.js";
+import { createCoreCheck, updateCoreCheck, buildCoreSummaryData, determineCoreConclusion, } from "../checks/manager.js";
+import { setOutput, setFailed, logGroup, logGroupEnd, findClaudeCodeExecutable, handleTriggerErrors, collectTriggerErrors, computeWorkflowOutputs, setWorkflowOutputs, getAuthenticatedBotLogin, writeFindingsOutput, } from "./base.js";
 // -----------------------------------------------------------------------------
 // Fix Evaluation Logging
 // -----------------------------------------------------------------------------
 function logFixEvaluation(ev, index, total) {
     const totalTokens = ev.usage.inputTokens + ev.usage.outputTokens;
-    const costStr = ev.usage.costUSD > 0 ? `, ${formatCost(ev.usage.costUSD)}` : '';
-    const idPrefix = ev.findingId ? `${ev.findingId} ` : '';
-    const verdict = ev.usedFallback ? 'eval_error' : ev.verdict;
+    const costStr = ev.usage.costUSD > 0 ? `, ${formatCost(ev.usage.costUSD)}` : "";
+    const idPrefix = ev.findingId ? `${ev.findingId} ` : "";
+    const verdict = ev.usedFallback ? "eval_error" : ev.verdict;
     const line = `  [${index + 1}/${total}] ${idPrefix}${ev.path}:${ev.line} → ${verdict} (${formatDuration(ev.durationMs)}, ${formatTokens(totalTokens)} tok${costStr})`;
     if (ev.usedFallback) {
         warnAction(line);
@@ -38,7 +39,7 @@ function logFixEvaluation(ev, index, total) {
     else {
         logAction(line);
     }
-    if (ev.verdict === 'attempted_failed' && ev.reasoning) {
+    if (ev.verdict === "attempted_failed" && ev.reasoning) {
         logAction(`        reason: "${ev.reasoning}"`);
     }
 }
@@ -51,13 +52,15 @@ function logFixEvaluation(ev, index, total) {
 async function initializeWorkflow(octokit, inputs, eventName, eventPath, repoPath) {
     let eventPayload;
     try {
-        eventPayload = JSON.parse(readFileSync(eventPath, 'utf-8'));
+        eventPayload = JSON.parse(readFileSync(eventPath, "utf-8"));
     }
     catch (error) {
-        Sentry.captureException(error, { tags: { operation: 'read_event_payload' } });
+        Sentry.captureException(error, {
+            tags: { operation: "read_event_payload" },
+        });
         setFailed(`Failed to read event payload: ${error}`);
     }
-    logGroup('Building event context');
+    logGroup("Building event context");
     console.log(`Event: ${eventName}`);
     console.log(`Workspace: ${repoPath}`);
     logGroupEnd();
@@ -66,10 +69,12 @@ async function initializeWorkflow(octokit, inputs, eventName, eventPath, repoPat
         context = await buildEventContext(eventName, eventPayload, repoPath, octokit);
     }
     catch (error) {
-        Sentry.captureException(error, { tags: { operation: 'build_event_context' } });
+        Sentry.captureException(error, {
+            tags: { operation: "build_event_context" },
+        });
         setFailed(`Failed to build event context: ${error}`);
     }
-    logGroup('Loading configuration');
+    logGroup("Loading configuration");
     console.log(`Config path: ${inputs.configPath}`);
     logGroupEnd();
     const configFullPath = join(repoPath, inputs.configPath);
@@ -78,24 +83,54 @@ async function initializeWorkflow(octokit, inputs, eventName, eventPath, repoPat
         config = loadWardenConfig(dirname(configFullPath));
     }
     catch (error) {
-        if (error instanceof ConfigLoadError && error.message.includes('not found')) {
-            console.log('::warning::No warden.toml found. Skipping analysis.');
+        if (error instanceof ConfigLoadError &&
+            error.message.includes("not found")) {
+            console.log("::warning::No warden.toml found. Skipping analysis.");
             return null;
         }
         throw error;
     }
     // Resolve skills into triggers and match
     const resolvedTriggers = resolveSkillConfigs(config);
-    const matchedTriggers = resolvedTriggers.filter((t) => matchTrigger(t, context, 'github'));
+    // Auto-discover local skills not listed in warden.toml
+    const configuredNames = new Set(resolvedTriggers.map((t) => t.name));
+    try {
+        const discovered = await discoverAllSkills(repoPath);
+        for (const [name] of discovered) {
+            if (!configuredNames.has(name)) {
+                // Add as wildcard trigger so it participates in PR review
+                resolvedTriggers.push({
+                    name,
+                    skill: name,
+                    type: "*",
+                    filters: {
+                        ignorePaths: config.defaults?.ignorePaths,
+                    },
+                    failOn: config.defaults?.failOn,
+                    reportOn: config.defaults?.reportOn,
+                    maxFindings: config.defaults?.maxFindings,
+                    reportOnSuccess: config.defaults?.reportOnSuccess,
+                    requestChanges: config.defaults?.requestChanges,
+                    failCheck: config.defaults?.failCheck,
+                    minConfidence: config.defaults?.minConfidence,
+                });
+                console.log(`Auto-discovered local skill: ${name}`);
+            }
+        }
+    }
+    catch (error) {
+        warnAction(`Failed to auto-discover local skills: ${error}`);
+    }
+    const matchedTriggers = resolvedTriggers.filter((t) => matchTrigger(t, context, "github"));
     if (matchedTriggers.length > 0) {
-        logGroup('Matched triggers');
+        logGroup("Matched triggers");
         for (const trigger of matchedTriggers) {
             console.log(`- ${trigger.name}: ${trigger.skill}`);
         }
         logGroupEnd();
     }
     else {
-        console.log('No triggers matched for this event');
+        console.log("No triggers matched for this event");
     }
     return { context, config, matchedTriggers };
 }
@@ -110,7 +145,7 @@ async function fetchPreviousReviewInfo(octokit, context) {
     try {
         const botLogin = await getAuthenticatedBotLogin(octokit);
         if (!botLogin) {
-            logAction('Skipping dismiss flow: cannot identify bot (using PAT or GITHUB_TOKEN instead of GitHub App)');
+            logAction("Skipping dismiss flow: cannot identify bot (using PAT or GITHUB_TOKEN instead of GitHub App)");
             return null;
         }
         // Note: No pagination. PRs with 100+ reviews are rare; if Warden's review
@@ -148,7 +183,9 @@ async function setupGitHubState(octokit, context) {
         logAction(`Created core check: ${coreCheck.url}`);
     }
     catch (error) {
-        Sentry.captureException(error, { tags: { operation: 'create_core_check' } });
+        Sentry.captureException(error, {
+            tags: { operation: "create_core_check" },
+        });
         warnAction(`Failed to create core check: ${error}`);
     }
     previousReviewInfo = await fetchPreviousReviewInfo(octokit, context);
@@ -165,11 +202,11 @@ async function executeAllTriggers(matchedTriggers, octokit, context, config, inp
     // Resolve provider from inputs or config
     const providerName = inputs.provider ||
         config.defaults?.provider?.name ||
-        'openai';
+        "openai";
     const provider = createProvider(providerName);
-    const isClaudeProvider = providerName === 'claude';
+    const isClaudeProvider = providerName === "claude";
     // Only look for Claude Code CLI when using Claude provider
-    let claudePath = '';
+    let claudePath = "";
     if (isClaudeProvider) {
         claudePath = await findClaudeCodeExecutable();
     }
@@ -189,6 +226,7 @@ async function executeAllTriggers(matchedTriggers, octokit, context, config, inp
         globalRequestChanges: inputs.requestChanges,
         globalFailCheck: inputs.failCheck,
         semaphore,
+        mcpServers: config.mcp,
     }));
 }
 /**
@@ -210,7 +248,9 @@ async function postReviewsAndTrackFailures(octokit, context, results, inputs, au
             }
         }
         catch (error) {
-            Sentry.captureException(error, { tags: { operation: 'fetch_existing_comments' } });
+            Sentry.captureException(error, {
+                tags: { operation: "fetch_existing_comments" },
+            });
             warnAction(`Failed to fetch existing comments for deduplication: ${error}`);
         }
     }
@@ -233,15 +273,26 @@ async function postReviewsAndTrackFailures(octokit, context, results, inputs, au
             // Check if we should fail based on this trigger's config
             // Filter by confidence first so low-confidence findings don't cause failure
             const failCheck = result.failCheck ?? false;
-            const reportForFail = { ...result.report, findings: filterFindings(result.report.findings, undefined, result.minConfidence) };
-            if (failCheck && result.failOn && shouldFail(reportForFail, result.failOn)) {
+            const reportForFail = {
+                ...result.report,
+                findings: filterFindings(result.report.findings, undefined, result.minConfidence),
+            };
+            if (failCheck &&
+                result.failOn &&
+                shouldFail(reportForFail, result.failOn)) {
                 shouldFailAction = true;
                 const count = countFindingsAtOrAbove(reportForFail, result.failOn);
                 failureReasons.push(`${result.triggerName}: Found ${count} ${result.failOn}+ severity issues`);
             }
         }
     }
-    return { reports, fetchedComments, existingComments, shouldFailAction, failureReasons };
+    return {
+        reports,
+        fetchedComments,
+        existingComments,
+        shouldFailAction,
+        failureReasons,
+    };
 }
 /**
  * Evaluate fix attempts on unresolved comments and resolve stale comments.
@@ -259,7 +310,7 @@ async function evaluateFixesAndResolveStale(octokit, context, fetchedComments, a
         canResolveStale &&
         anthropicApiKey) {
         try {
-            logGroup('Fix evaluation');
+            logGroup("Fix evaluation");
             const unresolvedCount = wardenComments.filter((c) => !c.isResolved && c.threadId).length;
             if (unresolvedCount > 0) {
                 logAction(`Fix evaluation: evaluating ${unresolvedCount} unresolved comments`);
@@ -289,13 +340,15 @@ async function evaluateFixesAndResolveStale(octokit, context, fetchedComments, a
                         await postThreadReply(octokit, reply.comment.threadId, reply.replyBody);
                     }
                     catch (error) {
-                        Sentry.captureException(error, { tags: { operation: 'post_thread_reply' } });
+                        Sentry.captureException(error, {
+                            tags: { operation: "post_thread_reply" },
+                        });
                     }
                 }
             }
             if (fixEvaluation.evaluated > 0) {
                 const totalTokens = fixEvaluation.usage.inputTokens + fixEvaluation.usage.outputTokens;
-                let usageStr = '';
+                let usageStr = "";
                 if (totalTokens > 0) {
                     usageStr = `, ${formatTokens(totalTokens)} tok, ${formatCost(fixEvaluation.usage.costUSD)}`;
                 }
@@ -307,7 +360,9 @@ async function evaluateFixesAndResolveStale(octokit, context, fetchedComments, a
             logGroupEnd();
         }
         catch (error) {
-            Sentry.captureException(error, { tags: { operation: 'evaluate_fix_attempts' } });
+            Sentry.captureException(error, {
+                tags: { operation: "evaluate_fix_attempts" },
+            });
             warnAction(`Failed to evaluate fix attempts: ${error}`);
             logGroupEnd();
         }
@@ -317,7 +372,8 @@ async function evaluateFixesAndResolveStale(octokit, context, fetchedComments, a
     if (context.pullRequest && wardenComments.length > 0 && canResolveStale) {
         try {
             const scope = buildAnalyzedScope(context.pullRequest.files);
-            const commentsForStaleCheck = wardenComments.filter((c) => !commentsResolvedByFixEval.has(c.id) && !commentsEvaluatedByFixEval.has(c.id));
+            const commentsForStaleCheck = wardenComments.filter((c) => !commentsResolvedByFixEval.has(c.id) &&
+                !commentsEvaluatedByFixEval.has(c.id));
             const staleComments = findStaleComments(commentsForStaleCheck, allFindings, scope);
             if (staleComments.length > 0) {
                 const { resolvedCount, resolvedIds } = await resolveStaleComments(octokit, staleComments);
@@ -342,12 +398,14 @@ async function evaluateFixesAndResolveStale(octokit, context, fetchedComments, a
             }
         }
         catch (error) {
-            Sentry.captureException(error, { tags: { operation: 'resolve_stale_comments' } });
+            Sentry.captureException(error, {
+                tags: { operation: "resolve_stale_comments" },
+            });
             warnAction(`Failed to resolve stale comments: ${error}`);
         }
     }
     else if (!canResolveStale && wardenComments.length > 0) {
-        logAction('Skipping stale comment resolution due to trigger failures');
+        logAction("Skipping stale comment resolution due to trigger failures");
     }
     // Determine if all unresolved Warden comments were resolved during this run
     const unresolvedBefore = wardenComments.filter((c) => !c.isResolved);
@@ -366,14 +424,20 @@ async function finalizeWorkflow(octokit, context, previousReviewInfo, coreCheckI
     // Requires: all triggers succeeded, current run would not request changes,
     // and at least one trigger has an active failOn (prevents accidental dismiss when config changes).
     const wouldRequestChanges = results.some((r) => {
-        if (!r.failOn || r.failOn === 'off' || !(r.requestChanges ?? false) || !r.report)
+        if (!r.failOn ||
+            r.failOn === "off" ||
+            !(r.requestChanges ?? false) ||
+            !r.report)
             return false;
-        const filtered = { ...r.report, findings: filterFindings(r.report.findings, undefined, r.minConfidence) };
+        const filtered = {
+            ...r.report,
+            findings: filterFindings(r.report.findings, undefined, r.minConfidence),
+        };
         return shouldFail(filtered, r.failOn);
     });
-    const hasActiveFailOn = results.some((r) => r.failOn && r.failOn !== 'off');
+    const hasActiveFailOn = results.some((r) => r.failOn && r.failOn !== "off");
     if (context.pullRequest &&
-        previousReviewInfo?.state === 'CHANGES_REQUESTED' &&
+        previousReviewInfo?.state === "CHANGES_REQUESTED" &&
         canResolveStale &&
         !wouldRequestChanges &&
         hasActiveFailOn) {
@@ -383,12 +447,12 @@ async function finalizeWorkflow(octokit, context, previousReviewInfo, coreCheckI
                 repo: context.repository.name,
                 pull_number: context.pullRequest.number,
                 review_id: previousReviewInfo.reviewId,
-                message: 'All previously reported issues have been resolved.',
+                message: "All previously reported issues have been resolved.",
             });
-            logAction('Dismissed previous CHANGES_REQUESTED review');
+            logAction("Dismissed previous CHANGES_REQUESTED review");
         }
         catch (error) {
-            Sentry.captureException(error, { tags: { operation: 'dismiss_review' } });
+            Sentry.captureException(error, { tags: { operation: "dismiss_review" } });
             warnAction(`Failed to dismiss previous review: ${error}`);
         }
     }
@@ -414,12 +478,14 @@ async function finalizeWorkflow(octokit, context, previousReviewInfo, coreCheckI
             });
         }
         catch (error) {
-            Sentry.captureException(error, { tags: { operation: 'update_core_check' } });
+            Sentry.captureException(error, {
+                tags: { operation: "update_core_check" },
+            });
             warnAction(`Failed to update core check: ${error}`);
         }
     }
     if (shouldFailAction) {
-        setFailed(failureReasons.join('; '));
+        setFailed(failureReasons.join("; "));
     }
     logAction(`Analysis complete: ${outputs.findingsCount} total findings`);
 }
@@ -449,21 +515,21 @@ async function cleanupOrphanedComments(octokit, context, anthropicApiKey, auxili
     logAction(`No triggers matched, but found ${wardenComments.length} existing Warden comments. Running cleanup.`);
     const { allResolved, autoResolvedByFixEvaluation, autoResolvedByStaleCheck } = await evaluateFixesAndResolveStale(octokit, context, existingComments, [], true, anthropicApiKey, auxiliaryMaxRetries);
     const activeSpan = Sentry.getActiveSpan();
-    activeSpan?.setAttribute('warden.feedback.auto_resolve.fix_eval_count', autoResolvedByFixEvaluation);
-    activeSpan?.setAttribute('warden.feedback.auto_resolve.stale_count', autoResolvedByStaleCheck);
+    activeSpan?.setAttribute("warden.feedback.auto_resolve.fix_eval_count", autoResolvedByFixEvaluation);
+    activeSpan?.setAttribute("warden.feedback.auto_resolve.stale_count", autoResolvedByStaleCheck);
     // Dismiss CHANGES_REQUESTED only if every unresolved comment was resolved
     if (allResolved) {
         const previousReviewInfo = await fetchPreviousReviewInfo(octokit, context);
-        if (previousReviewInfo?.state === 'CHANGES_REQUESTED') {
+        if (previousReviewInfo?.state === "CHANGES_REQUESTED") {
             try {
                 await octokit.pulls.dismissReview({
                     owner: context.repository.owner,
                     repo: context.repository.name,
                     pull_number: context.pullRequest.number,
                     review_id: previousReviewInfo.reviewId,
-                    message: 'All previously reported issues have been resolved.',
+                    message: "All previously reported issues have been resolved.",
                 });
-                logAction('Dismissed previous CHANGES_REQUESTED review');
+                logAction("Dismissed previous CHANGES_REQUESTED review");
             }
             catch (error) {
                 warnAction(`Failed to dismiss previous review: ${error}`);
@@ -475,24 +541,26 @@ async function cleanupOrphanedComments(octokit, context, anthropicApiKey, auxili
 // Main PR Workflow
 // -----------------------------------------------------------------------------
 export async function runPRWorkflow(octokit, inputs, eventName, eventPath, repoPath) {
-    return Sentry.startSpan({ op: 'workflow.run', name: 'review pull_request' }, async (span) => {
-        span.setAttribute('github.event', eventName);
-        const initResult = await Sentry.startSpan({ op: 'workflow.init', name: 'initialize workflow' }, () => initializeWorkflow(octokit, inputs, eventName, eventPath, repoPath));
+    return Sentry.startSpan({ op: "workflow.run", name: "review pull_request" }, async (span) => {
+        span.setAttribute("github.event", eventName);
+        const initResult = await Sentry.startSpan({ op: "workflow.init", name: "initialize workflow" }, () => initializeWorkflow(octokit, inputs, eventName, eventPath, repoPath));
         if (!initResult) {
-            setOutput('findings-count', 0);
-            setOutput('high-count', 0);
-            setOutput('summary', 'No warden.toml found');
+            setOutput("findings-count", 0);
+            setOutput("high-count", 0);
+            setOutput("summary", "No warden.toml found");
             try {
-                const fullName = process.env['GITHUB_REPOSITORY'] ?? '';
-                const [o = '', n = ''] = fullName.split('/');
+                const fullName = process.env["GITHUB_REPOSITORY"] ?? "";
+                const [o = "", n = ""] = fullName.split("/");
                 writeFindingsOutput([], {
-                    eventType: 'pull_request',
-                    action: '',
-                    repository: { owner: o, name: n, fullName, defaultBranch: '' },
+                    eventType: "pull_request",
+                    action: "",
+                    repository: { owner: o, name: n, fullName, defaultBranch: "" },
                     repoPath,
                 });
             }
-            catch { /* non-fatal */ }
+            catch {
+                /* non-fatal */
+            }
             return;
         }
         const { context, config, matchedTriggers } = initResult;
@@ -500,46 +568,48 @@ export async function runPRWorkflow(octokit, inputs, eventName, eventPath, repoP
         if (context.pullRequest) {
             Sentry.setUser({ username: context.pullRequest.author });
         }
-        Sentry.setContext('repository', {
+        Sentry.setContext("repository", {
             owner: context.repository.owner,
             name: context.repository.name,
         });
         if (context.pullRequest) {
-            Sentry.setContext('pull_request', {
+            Sentry.setContext("pull_request", {
                 number: context.pullRequest.number,
                 baseBranch: context.pullRequest.baseBranch,
                 headBranch: context.pullRequest.headBranch,
             });
         }
-        setGlobalAttributes({ 'warden.repository': context.repository.fullName });
+        setGlobalAttributes({ "warden.repository": context.repository.fullName });
         emitRunMetric();
         const traceId = span.spanContext().traceId;
-        logger.info('Workflow initialized', {
-            'trigger.count': matchedTriggers.length,
-            'trace.id': traceId,
+        logger.info("Workflow initialized", {
+            "trigger.count": matchedTriggers.length,
+            "trace.id": traceId,
         });
         if (matchedTriggers.length === 0) {
             await cleanupOrphanedComments(octokit, context, inputs.anthropicApiKey, config.defaults?.auxiliaryMaxRetries);
-            setOutput('findings-count', 0);
-            setOutput('high-count', 0);
-            setOutput('summary', 'No triggers matched');
+            setOutput("findings-count", 0);
+            setOutput("high-count", 0);
+            setOutput("summary", "No triggers matched");
             try {
                 writeFindingsOutput([], context);
             }
-            catch { /* non-fatal */ }
+            catch {
+                /* non-fatal */
+            }
             return;
         }
-        const { coreCheckId, previousReviewInfo } = await Sentry.startSpan({ op: 'workflow.setup', name: 'setup github state' }, () => setupGitHubState(octokit, context));
-        const results = await Sentry.startSpan({ op: 'workflow.execute', name: 'execute triggers' }, () => executeAllTriggers(matchedTriggers, octokit, context, config, inputs));
-        const reviewPhase = await Sentry.startSpan({ op: 'workflow.review', name: 'post reviews' }, () => postReviewsAndTrackFailures(octokit, context, results, inputs, config.defaults?.auxiliaryMaxRetries));
+        const { coreCheckId, previousReviewInfo } = await Sentry.startSpan({ op: "workflow.setup", name: "setup github state" }, () => setupGitHubState(octokit, context));
+        const results = await Sentry.startSpan({ op: "workflow.execute", name: "execute triggers" }, () => executeAllTriggers(matchedTriggers, octokit, context, config, inputs));
+        const reviewPhase = await Sentry.startSpan({ op: "workflow.review", name: "post reviews" }, () => postReviewsAndTrackFailures(octokit, context, results, inputs, config.defaults?.auxiliaryMaxRetries));
         const triggerErrors = collectTriggerErrors(results);
         handleTriggerErrors(triggerErrors, matchedTriggers.length);
         const canResolveStale = shouldResolveStaleComments(results);
         const allFindings = reviewPhase.reports.flatMap((r) => r.findings);
-        await Sentry.startSpan({ op: 'workflow.resolve', name: 'resolve stale comments' }, async (resolveSpan) => {
+        await Sentry.startSpan({ op: "workflow.resolve", name: "resolve stale comments" }, async (resolveSpan) => {
             const resolutionResult = await evaluateFixesAndResolveStale(octokit, context, reviewPhase.fetchedComments, allFindings, canResolveStale, inputs.anthropicApiKey, config.defaults?.auxiliaryMaxRetries);
-            resolveSpan.setAttribute('warden.feedback.auto_resolve.fix_eval_count', resolutionResult.autoResolvedByFixEvaluation);
-            resolveSpan.setAttribute('warden.feedback.auto_resolve.stale_count', resolutionResult.autoResolvedByStaleCheck);
+            resolveSpan.setAttribute("warden.feedback.auto_resolve.fix_eval_count", resolutionResult.autoResolvedByFixEvaluation);
+            resolveSpan.setAttribute("warden.feedback.auto_resolve.stale_count", resolutionResult.autoResolvedByStaleCheck);
         });
         await finalizeWorkflow(octokit, context, previousReviewInfo, coreCheckId, results, reviewPhase.reports, reviewPhase.shouldFailAction, reviewPhase.failureReasons, canResolveStale);
     });

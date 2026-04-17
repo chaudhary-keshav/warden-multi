@@ -9,6 +9,7 @@
 import {
   query as claudeQuery,
   type SDKResultMessage,
+  type McpServerConfig as ClaudeMcpServerConfig,
 } from "@anthropic-ai/claude-agent-sdk";
 import Anthropic from "@anthropic-ai/sdk";
 import type {
@@ -23,11 +24,9 @@ import { ExecError, execFileNonInteractive } from "../utils/exec.js";
 import { WardenAuthenticationError } from "../sdk/errors.js";
 import { apiUsageToStats } from "../sdk/pricing.js";
 import { emptyUsage, extractUsage } from "../sdk/usage.js";
-import { extractJson } from "../sdk/haiku.js";
 
 const CLAUDE_DEFAULT_MODEL = "claude-sonnet-4-20250514";
 const CLAUDE_AUXILIARY_MODEL = "claude-haiku-4-5";
-const DEFAULT_AUX_TIMEOUT_MS = 30_000;
 const DEFAULT_AUX_MAX_TOKENS = 4096;
 
 export class ClaudeProvider implements LLMProvider {
@@ -43,9 +42,9 @@ export class ClaudeProvider implements LLMProvider {
       maxTurns = 50,
       repoPath = process.cwd(),
       abortSignal,
-      apiKey,
       stderr,
       pathToExecutable,
+      mcpServers,
     } = options;
 
     const stderrChunks: string[] = [];
@@ -73,6 +72,15 @@ export class ClaudeProvider implements LLMProvider {
           ? ({ signal: abortSignal } as AbortController)
           : undefined,
         pathToClaudeCodeExecutable: pathToExecutable,
+        // Pass MCP servers natively — Claude SDK handles them directly
+        ...(mcpServers && Object.keys(mcpServers).length > 0
+          ? {
+              mcpServers: mcpServers as Record<
+                string,
+                ClaudeMcpServerConfig
+              >,
+            }
+          : {}),
         stderr: (data: string) => {
           stderrChunks.push(data);
           stderr?.(data);

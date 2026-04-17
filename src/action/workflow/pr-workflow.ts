@@ -23,6 +23,7 @@ import type { ResolvedTrigger } from "../../config/loader.js";
 import type { WardenConfig } from "../../config/schema.js";
 import { buildEventContext } from "../../event/context.js";
 import { discoverAllSkills } from "../../skills/loader.js";
+import type { McpServerConfig } from "../../providers/types.js";
 import {
   matchTrigger,
   shouldFail,
@@ -362,6 +363,7 @@ async function executeAllTriggers(
       globalRequestChanges: inputs.requestChanges,
       globalFailCheck: inputs.failCheck,
       semaphore,
+      mcpServers: config.mcp as Record<string, McpServerConfig> | undefined,
     }),
   );
 }

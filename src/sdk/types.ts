@@ -6,7 +6,7 @@ import type {
 } from "../types/index.js";
 import type { HunkWithContext } from "../diff/index.js";
 import type { ChunkingConfig } from "../config/schema.js";
-import type { LLMProvider } from "../providers/types.js";
+import type { LLMProvider, McpServerConfig } from "../providers/types.js";
 
 /** A single auxiliary usage entry, keyed by agent name (e.g. 'extraction', 'dedup'). */
 export interface AuxiliaryUsageEntry {
@@ -128,6 +128,8 @@ export interface SkillRunnerOptions {
   auxiliaryMaxRetries?: number;
   /** LLM provider to use for analysis. Defaults to Claude (original behavior). */
   provider?: LLMProvider;
+  /** MCP server configurations for augmenting tools */
+  mcpServers?: Record<string, McpServerConfig>;
 }
 
 /**

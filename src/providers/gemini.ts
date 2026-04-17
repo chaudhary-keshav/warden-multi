@@ -11,11 +11,13 @@ import type {
   LLMQueryResult,
   AuxiliaryQueryResult,
   ProviderName,
+  GeminiToolDeclaration,
 } from "./types.js";
 import type { UsageStats } from "../types/index.js";
 import { WardenAuthenticationError } from "../sdk/errors.js";
 import { emptyUsage } from "../sdk/usage.js";
 import { executeLocalTool, TOOL_DECLARATIONS_GEMINI } from "./tools.js";
+import { McpClientManager } from "./mcp-client.js";
 
 const GEMINI_DEFAULT_MODEL = "gemini-3.1-pro-preview";
 const GEMINI_AUXILIARY_MODEL = "gemini-2.5-flash";
@@ -57,6 +59,7 @@ export class GeminiProvider implements LLMProvider {
       maxTurns = 50,
       repoPath = process.cwd(),
       apiKey,
+      mcpServers,
     } = options;
 
     if (!apiKey) {
@@ -73,6 +76,23 @@ export class GeminiProvider implements LLMProvider {
     // Dynamic import to keep the dependency optional
     const { GoogleGenAI } = await import("@google/genai");
     const client = new GoogleGenAI({ apiKey });
+
+    // Initialize MCP client if configured
+    let mcpClient: McpClientManager | undefined;
+    let allToolDeclarations: GeminiToolDeclaration[] = [...TOOL_DECLARATIONS_GEMINI];
+
+    if (mcpServers && Object.keys(mcpServers).length > 0) {
+      mcpClient = new McpClientManager(mcpServers);
+      try {
+        await mcpClient.connect();
+        allToolDeclarations = [...TOOL_DECLARATIONS_GEMINI, ...mcpClient.getGeminiToolDeclarations()];
+      } catch (error) {
+        console.error(
+          `::warning::MCP initialization failed, continuing without MCP tools: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        mcpClient = undefined;
+      }
+    }
 
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
@@ -92,7 +112,7 @@ export class GeminiProvider implements LLMProvider {
           contents,
           config: {
             systemInstruction: systemPrompt,
-            tools: [{ functionDeclarations: TOOL_DECLARATIONS_GEMINI }],
+            tools: [{ functionDeclarations: allToolDeclarations }],
           },
         });
 
@@ -110,7 +130,7 @@ export class GeminiProvider implements LLMProvider {
         if (functionCalls.length === 0) {
           const textParts = parts
             .filter((p) => p.text != null)
-            .map((p) => p.text!)
+            .map((p) => p.text ?? "")
             .join("");
 
           const usage: UsageStats = {
@@ -141,12 +161,17 @@ export class GeminiProvider implements LLMProvider {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const toolResponseParts: any[] = [];
         for (const part of functionCalls) {
-          const fc = part.functionCall!;
-          const toolResult = await executeLocalTool(
-            fc.name!,
-            (fc.args as Record<string, unknown>) ?? {},
-            repoPath,
-          );
+          const fc = part.functionCall;
+          if (!fc) continue;
+          const fcName = fc.name ?? "";
+          // Route to MCP client or local tool execution
+          const toolResult = mcpClient?.isMcpTool(fcName)
+            ? await mcpClient.callTool(fcName, (fc.args as Record<string, unknown>) ?? {})
+            : await executeLocalTool(
+                fcName,
+                (fc.args as Record<string, unknown>) ?? {},
+                repoPath,
+              );
           toolResponseParts.push({
             functionResponse: {
               name: fc.name,
@@ -189,6 +214,8 @@ export class GeminiProvider implements LLMProvider {
         model,
         error: error instanceof Error ? error.message : String(error),
       };
+    } finally {
+      await mcpClient?.close();
     }
   }
 
@@ -228,7 +255,7 @@ export class GeminiProvider implements LLMProvider {
       const content =
         response.candidates?.[0]?.content?.parts
           ?.filter((p) => p.text != null)
-          .map((p) => p.text!)
+          .map((p) => p.text ?? "")
           .join("") ?? "";
 
       const usage: UsageStats = {

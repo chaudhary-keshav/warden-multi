@@ -3,7 +3,7 @@
  *
  * Handles parsing inputs from GitHub Actions environment and validates them.
  */
-import type { SeverityThreshold } from '../types/index.js';
+import type { SeverityThreshold } from "../types/index.js";
 export interface ActionInputs {
     /** Provider name (claude, openai, gemini) */
     provider: string;

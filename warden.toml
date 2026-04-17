@@ -8,6 +8,11 @@ reportOn = "medium"
 # Exclude build output from all skills
 ignorePaths = ["dist/**", "evals/**"]
 
+# MCP server configurations
+[mcp.codetrellis]
+command = "codetrellis"
+args = ["mcp"]
+
 [[skills]]
 name = "find-warden-bugs"
 paths = ["src/**/*.ts"]
@@ -37,6 +42,15 @@ actions = ["opened", "synchronize", "reopened"]
 [[skills]]
 name = "code-simplifier"
 remote = "getsentry/sentry-skills"
+
+[[skills.triggers]]
+type = "pull_request"
+actions = ["opened", "synchronize", "reopened"]
+
+[[skills]]
+name = "codetrellis-aware-review"
+paths = ["src/**/*.ts"]
+ignorePaths = ["src/**/*.test.ts"]
 
 [[skills.triggers]]
 type = "pull_request"

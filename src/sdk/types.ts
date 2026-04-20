@@ -6,7 +6,8 @@ import type {
 } from "../types/index.js";
 import type { HunkWithContext } from "../diff/index.js";
 import type { ChunkingConfig } from "../config/schema.js";
-import type { LLMProvider } from "../providers/types.js";
+import type { LLMProvider, McpServerConfig } from "../providers/types.js";
+import type { PipelineState } from "../pipeline/types.js";
 
 /** A single auxiliary usage entry, keyed by agent name (e.g. 'extraction', 'dedup'). */
 export interface AuxiliaryUsageEntry {
@@ -34,6 +35,8 @@ export interface HunkAnalysisResult {
   extractionPreview?: string;
   /** Usage from auxiliary LLM calls (e.g., extraction repair) */
   auxiliaryUsage?: AuxiliaryUsageEntry[];
+  /** Reasoning trace from the LLM's analysis (used for inter-skill context compaction) */
+  reasoning?: string;
 }
 
 /**
@@ -128,6 +131,10 @@ export interface SkillRunnerOptions {
   auxiliaryMaxRetries?: number;
   /** LLM provider to use for analysis. Defaults to Claude (original behavior). */
   provider?: LLMProvider;
+  /** MCP server configurations for augmenting tools */
+  mcpServers?: Record<string, McpServerConfig>;
+  /** Pipeline state for sequential multi-skill execution (augmented prompts) */
+  pipelineState?: PipelineState;
 }
 
 /**
@@ -224,6 +231,8 @@ export interface FileAnalysisResult {
   failedExtractions: number;
   /** Usage from auxiliary LLM calls across all hunks */
   auxiliaryUsage?: AuxiliaryUsageEntry[];
+  /** Reasoning traces from all hunks in this file (used for inter-skill context compaction) */
+  reasoningTraces?: string[];
 }
 
 /**

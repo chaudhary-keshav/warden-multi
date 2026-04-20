@@ -12,11 +12,13 @@ import type {
   LLMQueryResult,
   AuxiliaryQueryResult,
   ProviderName,
+  OpenAIToolDefinition,
 } from "./types.js";
 import type { UsageStats } from "../types/index.js";
 import { WardenAuthenticationError } from "../sdk/errors.js";
 import { emptyUsage } from "../sdk/usage.js";
 import { executeLocalTool, TOOL_DEFINITIONS_OPENAI } from "./tools.js";
+import { McpClientManager } from "./mcp-client.js";
 
 const OPENAI_DEFAULT_MODEL = "gpt-5.2";
 const OPENAI_AUXILIARY_MODEL = "gpt-4o-mini";
@@ -68,6 +70,7 @@ export class OpenAIProvider implements LLMProvider {
       repoPath = process.cwd(),
       abortSignal,
       apiKey,
+      mcpServers,
     } = options;
 
     if (!apiKey) {
@@ -84,6 +87,23 @@ export class OpenAIProvider implements LLMProvider {
     // Dynamic import to avoid requiring openai when using other providers
     const { default: OpenAI } = await import("openai");
     const client = new OpenAI({ apiKey });
+
+    // Initialize MCP client if configured
+    let mcpClient: McpClientManager | undefined;
+    let allTools: OpenAIToolDefinition[] = [...TOOL_DEFINITIONS_OPENAI];
+
+    if (mcpServers && Object.keys(mcpServers).length > 0) {
+      mcpClient = new McpClientManager(mcpServers);
+      try {
+        await mcpClient.connect();
+        allTools = [...TOOL_DEFINITIONS_OPENAI, ...mcpClient.getOpenAIToolDefinitions()];
+      } catch (error) {
+        console.error(
+          `::warning::MCP initialization failed, continuing without MCP tools: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        mcpClient = undefined;
+      }
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const messages: any[] = [
@@ -107,7 +127,7 @@ export class OpenAIProvider implements LLMProvider {
             messages: messages as Parameters<
               typeof client.chat.completions.create
             >[0]["messages"],
-            tools: TOOL_DEFINITIONS_OPENAI,
+            tools: allTools,
             tool_choice: "auto",
           },
           abortSignal ? { signal: abortSignal } : undefined,
@@ -158,7 +178,10 @@ export class OpenAIProvider implements LLMProvider {
           if (toolCall.type !== "function") continue;
           const fn = toolCall.function;
           const args = JSON.parse(fn.arguments);
-          const toolResult = await executeLocalTool(fn.name, args, repoPath);
+          // Route to MCP client or local tool execution
+          const toolResult = mcpClient?.isMcpTool(fn.name)
+            ? await mcpClient.callTool(fn.name, args)
+            : await executeLocalTool(fn.name, args, repoPath);
 
           messages.push({
             role: "tool",
@@ -207,6 +230,8 @@ export class OpenAIProvider implements LLMProvider {
         model: lastModel,
         error: error instanceof Error ? error.message : String(error),
       };
+    } finally {
+      await mcpClient?.close();
     }
   }
 

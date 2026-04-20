@@ -1,74 +1,74 @@
-name: 'Warden'
-description: 'Multi-provider event-driven agent that analyzes GitHub PRs using Claude, GPT, or Gemini'
-author: 'Functional Software, Inc.'
+name: "Warden"
+description: "Multi-provider event-driven agent that analyzes GitHub PRs using Claude, GPT, or Gemini"
+author: "Functional Software, Inc."
 
 branding:
-  icon: 'shield'
-  color: 'purple'
+  icon: "shield"
+  color: "purple"
 
 inputs:
   provider:
-    description: 'LLM provider to use: claude, openai, or gemini (default: read from warden.toml, falls back to openai)'
+    description: "LLM provider to use: claude, openai, or gemini (default: read from warden.toml, falls back to openai)"
     required: false
-    default: ''
+    default: ""
   anthropic-api-key:
-    description: 'Anthropic API key (sk-ant-...) or OAuth token. Can also be set via ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN env vars.'
+    description: "Anthropic API key (sk-ant-...) or OAuth token. Can also be set via ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN env vars."
     required: false
   openai-api-key:
-    description: 'OpenAI API key. Can also be set via OPENAI_API_KEY env var.'
+    description: "OpenAI API key. Can also be set via OPENAI_API_KEY env var."
     required: false
   gemini-api-key:
-    description: 'Gemini API key. Can also be set via GEMINI_API_KEY env var.'
+    description: "Gemini API key. Can also be set via GEMINI_API_KEY env var."
     required: false
   github-token:
-    description: 'GitHub token for API access (defaults to GITHUB_TOKEN)'
+    description: "GitHub token for API access (defaults to GITHUB_TOKEN)"
     required: false
     default: ${{ github.token }}
   config-path:
-    description: 'Path to warden.toml config file (relative to repo root)'
+    description: "Path to warden.toml config file (relative to repo root)"
     required: false
-    default: 'warden.toml'
+    default: "warden.toml"
   fail-on:
     description: 'Minimum severity level to fail the action (off, critical, high, medium, low, info). Use "off" to never fail.'
     required: false
-    default: 'high'
+    default: "high"
   report-on:
     description: 'Minimum severity level to show annotations in code review (off, critical, high, medium, low, info). Use "off" to disable reporting.'
     required: false
-    default: 'medium'
+    default: "medium"
   max-findings:
-    description: 'Maximum number of findings to report (0 for unlimited)'
+    description: "Maximum number of findings to report (0 for unlimited)"
     required: false
-    default: '50'
+    default: "50"
   request-changes:
-    description: 'Whether to use REQUEST_CHANGES review event when findings exceed fail-on threshold'
+    description: "Whether to use REQUEST_CHANGES review event when findings exceed fail-on threshold"
     required: false
-    default: 'false'
+    default: "false"
   fail-check:
-    description: 'Whether to fail the check run when findings exceed fail-on threshold'
+    description: "Whether to fail the check run when findings exceed fail-on threshold"
     required: false
-    default: 'false'
+    default: "false"
   parallel:
-    description: 'Maximum number of concurrent trigger executions'
+    description: "Maximum number of concurrent trigger executions"
     required: false
-    default: '5'
+    default: "5"
 
 outputs:
   findings-count:
-    description: 'Total number of findings'
+    description: "Total number of findings"
     value: ${{ steps.warden.outputs.findings-count }}
   high-count:
-    description: 'Number of high severity findings'
+    description: "Number of high severity findings"
     value: ${{ steps.warden.outputs.high-count }}
   summary:
-    description: 'Summary of the analysis'
+    description: "Summary of the analysis"
     value: ${{ steps.warden.outputs.summary }}
   findings-file:
-    description: 'Path to structured JSON findings file (always written, use for upload to GCS/S3/etc.)'
+    description: "Path to structured JSON findings file (always written, use for upload to GCS/S3/etc.)"
     value: ${{ steps.warden.outputs.findings-file }}
 
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
     - name: Detect provider
       id: detect-provider

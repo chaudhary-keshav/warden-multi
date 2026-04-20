@@ -1,6 +1,6 @@
 {
   "compression": "high",
-  "created": "2026-04-10T12:00:07.017809",
+  "created": "2026-04-17T11:20:40.287551",
   "ignore": [
     "node_modules",
     "dist",
@@ -24,6 +24,6 @@
     "python": true,
     "typescript": true
   },
-  "project": "warden",
+  "project": "warden-multi",
   "version": "1.3.0"
 }

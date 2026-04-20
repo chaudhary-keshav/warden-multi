@@ -36,7 +36,7 @@ export {
   PullRequestContextSchema,
   RepositoryContextSchema,
   EventContextSchema,
-} from './types/index.js';
+} from "./types/index.js";
 
 export type {
   Severity,
@@ -52,7 +52,7 @@ export type {
   PullRequestContext,
   RepositoryContext,
   EventContext,
-} from './types/index.js';
+} from "./types/index.js";
 
 // -----------------------------------------------------------------------------
 // Configuration
@@ -69,7 +69,7 @@ export {
   resolveSkillConfigs,
   // Errors
   ConfigLoadError,
-} from './config/index.js';
+} from "./config/index.js";
 
 export type {
   SkillDefinition,
@@ -78,14 +78,14 @@ export type {
   TriggerType,
   WardenConfig,
   ResolvedTrigger,
-} from './config/index.js';
+} from "./config/index.js";
 
 // -----------------------------------------------------------------------------
 // SDK Runner
 // -----------------------------------------------------------------------------
-export { runSkill, SkillRunnerError } from './sdk/runner.js';
+export { runSkill, SkillRunnerError } from "./sdk/runner.js";
 
-export type { SkillRunnerOptions, SkillRunnerCallbacks } from './sdk/runner.js';
+export type { SkillRunnerOptions, SkillRunnerCallbacks } from "./sdk/runner.js";
 
 // -----------------------------------------------------------------------------
 // Skills
@@ -94,14 +94,14 @@ export {
   resolveSkillAsync,
   resolveAgentAsync,
   SkillLoaderError,
-} from './skills/index.js';
+} from "./skills/index.js";
 
-export type { AgentDefinition } from './skills/index.js';
+export type { AgentDefinition } from "./skills/index.js";
 
 // -----------------------------------------------------------------------------
 // Event Context
 // -----------------------------------------------------------------------------
-export { buildEventContext, EventContextError } from './event/context.js';
+export { buildEventContext, EventContextError } from "./event/context.js";
 
 // -----------------------------------------------------------------------------
 // Trigger Matching
@@ -113,16 +113,33 @@ export {
   shouldFail,
   countFindingsAtOrAbove,
   countSeverity,
-} from './triggers/matcher.js';
+} from "./triggers/matcher.js";
 
 // -----------------------------------------------------------------------------
 // Output Rendering
 // -----------------------------------------------------------------------------
-export { renderSkillReport } from './output/renderer.js';
+export { renderSkillReport } from "./output/renderer.js";
 
 export type {
   RenderResult,
   RenderOptions,
   GitHubReview,
   GitHubComment,
-} from './output/types.js';
+} from "./output/types.js";
+
+// -----------------------------------------------------------------------------
+// Pipeline (Sequential Multi-Skill Execution)
+// -----------------------------------------------------------------------------
+export {
+  createInitialPipelineState,
+  accumulateState,
+  compactReasoning,
+  executeSequentialPipeline,
+} from "./pipeline/index.js";
+
+export type {
+  PipelineState,
+  SkillStepResult,
+  CompactionResult,
+  CompactionOptions,
+} from "./pipeline/index.js";

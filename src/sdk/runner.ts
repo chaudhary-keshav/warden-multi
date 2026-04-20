@@ -13,25 +13,41 @@
  */
 
 // Re-export error classes and utilities
-export { SkillRunnerError, WardenAuthenticationError, isRetryableError, isAuthenticationError, isAuthenticationErrorMessage, isSubprocessError } from './errors.js';
+export {
+  SkillRunnerError,
+  WardenAuthenticationError,
+  isRetryableError,
+  isAuthenticationError,
+  isAuthenticationErrorMessage,
+  isSubprocessError,
+} from "./errors.js";
 
 // Re-export auth utilities
-export { verifyAuth } from './auth.js';
+export { verifyAuth } from "./auth.js";
 
 // Re-export retry utilities
-export { calculateRetryDelay } from './retry.js';
+export { calculateRetryDelay } from "./retry.js";
 
 // Re-export usage utilities
-export { aggregateUsage, aggregateAuxiliaryUsage, mergeAuxiliaryUsage, estimateTokens } from './usage.js';
+export {
+  aggregateUsage,
+  aggregateAuxiliaryUsage,
+  mergeAuxiliaryUsage,
+  estimateTokens,
+} from "./usage.js";
 
 // Re-export pricing utilities
-export { apiUsageToStats } from './pricing.js';
+export { apiUsageToStats } from "./pricing.js";
 
 // Re-export prompt building (with legacy alias)
-export { buildHunkSystemPrompt, buildHunkUserPrompt } from './prompt.js';
-export type { PRPromptContext } from './prompt.js';
+export {
+  buildHunkSystemPrompt,
+  buildHunkUserPrompt,
+  buildAugmentedSystemPrompt,
+} from "./prompt.js";
+export type { PRPromptContext } from "./prompt.js";
 // Legacy export for backwards compatibility
-export { buildHunkSystemPrompt as buildSystemPrompt } from './prompt.js';
+export { buildHunkSystemPrompt as buildSystemPrompt } from "./prompt.js";
 
 // Re-export extraction utilities
 export {
@@ -45,14 +61,14 @@ export {
   mergeCrossLocationFindings,
   validateFindings,
   generateShortId,
-} from './extract.js';
-export type { ExtractFindingsResult, MergeResult } from './extract.js';
+} from "./extract.js";
+export type { ExtractFindingsResult, MergeResult } from "./extract.js";
 
 // Re-export file preparation
-export { prepareFiles } from './prepare.js';
+export { prepareFiles } from "./prepare.js";
 
 // Re-export analysis functions
-export { analyzeFile, runSkill, generateSummary } from './analyze.js';
+export { analyzeFile, runSkill, generateSummary } from "./analyze.js";
 
 // Re-export types
 export type {
@@ -64,5 +80,4 @@ export type {
   PrepareFilesResult,
   FileAnalysisCallbacks,
   FileAnalysisResult,
-} from './types.js';
-
+} from "./types.js";

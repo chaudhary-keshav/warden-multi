@@ -59,6 +59,58 @@ export interface LLMQueryOptions {
   stderr?: (data: string) => void;
   /** Path to CLI executable (Claude-specific) */
   pathToExecutable?: string;
+  /** MCP server configurations for tool augmentation */
+  mcpServers?: Record<string, McpServerConfig>;
+}
+
+/**
+ * MCP server configuration for connecting to external tool providers.
+ */
+export type McpServerConfig =
+  | McpStdioServerConfig
+  | McpSSEServerConfig
+  | McpHttpServerConfig;
+
+export interface McpStdioServerConfig {
+  type?: "stdio";
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+export interface McpSSEServerConfig {
+  type: "sse";
+  url: string;
+  headers?: Record<string, string>;
+}
+
+export interface McpHttpServerConfig {
+  type: "http";
+  url: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * OpenAI function-calling tool definition shape.
+ * Used to unify local tool definitions with MCP-discovered tools.
+ */
+export interface OpenAIToolDefinition {
+  readonly type: "function";
+  readonly function: {
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+  };
+}
+
+/**
+ * Gemini function declaration shape.
+ * Used to unify local tool declarations with MCP-discovered tools.
+ */
+export interface GeminiToolDeclaration {
+  readonly name: string;
+  readonly description: string;
+  readonly parametersJsonSchema: Record<string, unknown>;
 }
 
 /**

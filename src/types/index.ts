@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 /**
  * Normalize legacy severity values to the 3-level scale.
@@ -6,17 +6,20 @@ import { z } from 'zod';
  * with old JSONL logs and LLM responses.
  */
 export function normalizeSeverity(val: unknown): unknown {
-  if (val === 'critical') return 'high';
-  if (val === 'info') return 'low';
+  if (val === "critical") return "high";
+  if (val === "info") return "low";
   return val;
 }
 
 // Severity levels for findings
-export const SeveritySchema = z.preprocess(normalizeSeverity, z.enum(['high', 'medium', 'low']));
+export const SeveritySchema = z.preprocess(
+  normalizeSeverity,
+  z.enum(["high", "medium", "low"]),
+);
 export type Severity = z.infer<typeof SeveritySchema>;
 
 // Confidence levels for findings
-export const ConfidenceSchema = z.enum(['high', 'medium', 'low']);
+export const ConfidenceSchema = z.enum(["high", "medium", "low"]);
 export type Confidence = z.infer<typeof ConfidenceSchema>;
 
 /**
@@ -30,11 +33,19 @@ export const CONFIDENCE_ORDER: Record<Confidence, number> = {
 };
 
 // Severity threshold for config options (includes 'off' to disable)
-export const SeverityThresholdSchema = z.preprocess(normalizeSeverity, z.enum(['off', 'high', 'medium', 'low']));
+export const SeverityThresholdSchema = z.preprocess(
+  normalizeSeverity,
+  z.enum(["off", "high", "medium", "low"]),
+);
 export type SeverityThreshold = z.infer<typeof SeverityThresholdSchema>;
 
 // Confidence threshold for config options (includes 'off' to disable filtering)
-export const ConfidenceThresholdSchema = z.enum(['off', 'high', 'medium', 'low']);
+export const ConfidenceThresholdSchema = z.enum([
+  "off",
+  "high",
+  "medium",
+  "low",
+]);
 export type ConfidenceThreshold = z.infer<typeof ConfidenceThresholdSchema>;
 
 /**
@@ -52,9 +63,12 @@ export const SEVERITY_ORDER: Record<Severity, number> = {
  * If no threshold is provided, returns all findings unchanged.
  * If threshold is 'off', returns empty array (disabled).
  */
-export function filterFindingsBySeverity(findings: Finding[], threshold?: SeverityThreshold): Finding[] {
+export function filterFindingsBySeverity(
+  findings: Finding[],
+  threshold?: SeverityThreshold,
+): Finding[] {
   if (!threshold) return findings;
-  if (threshold === 'off') return [];
+  if (threshold === "off") return [];
   const thresholdOrder = SEVERITY_ORDER[threshold];
   return findings.filter((f) => SEVERITY_ORDER[f.severity] <= thresholdOrder);
 }
@@ -64,8 +78,11 @@ export function filterFindingsBySeverity(findings: Finding[], threshold?: Severi
  * If no threshold is provided or threshold is 'off', returns all findings unchanged.
  * Findings without a confidence field are always included (backwards compat).
  */
-export function filterFindingsByConfidence(findings: Finding[], threshold?: ConfidenceThreshold): Finding[] {
-  if (!threshold || threshold === 'off') return findings;
+export function filterFindingsByConfidence(
+  findings: Finding[],
+  threshold?: ConfidenceThreshold,
+): Finding[] {
+  if (!threshold || threshold === "off") return findings;
   const thresholdOrder = CONFIDENCE_ORDER[threshold];
   return findings.filter((f) => {
     if (!f.confidence) return true;
@@ -81,9 +98,12 @@ export function filterFindingsByConfidence(findings: Finding[], threshold?: Conf
 export function filterFindings(
   findings: Finding[],
   reportOn?: SeverityThreshold,
-  minConfidence?: ConfidenceThreshold
+  minConfidence?: ConfidenceThreshold,
 ): Finding[] {
-  return filterFindingsByConfidence(filterFindingsBySeverity(findings, reportOn), minConfidence);
+  return filterFindingsByConfidence(
+    filterFindingsBySeverity(findings, reportOn),
+    minConfidence,
+  );
 }
 
 // Location within a file
@@ -131,12 +151,14 @@ export function compareFindingPriority(a: Finding, b: Finding): number {
   const sevDiff = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
   if (sevDiff !== 0) return sevDiff;
 
-  const confA = CONFIDENCE_ORDER[a.confidence ?? 'low'];
-  const confB = CONFIDENCE_ORDER[b.confidence ?? 'low'];
+  const confA = CONFIDENCE_ORDER[a.confidence ?? "low"];
+  const confB = CONFIDENCE_ORDER[b.confidence ?? "low"];
   const confDiff = confA - confB;
   if (confDiff !== 0) return confDiff;
 
-  const pathCmp = (a.location?.path ?? '').localeCompare(b.location?.path ?? '');
+  const pathCmp = (a.location?.path ?? "").localeCompare(
+    b.location?.path ?? "",
+  );
   if (pathCmp !== 0) return pathCmp;
 
   return findingLine(a) - findingLine(b);
@@ -159,7 +181,7 @@ export type AuxiliaryUsageMap = z.infer<typeof AuxiliaryUsageMapSchema>;
 // Skipped file info for chunking
 export const SkippedFileSchema = z.object({
   filename: z.string(),
-  reason: z.enum(['pattern', 'builtin']),
+  reason: z.enum(["pattern", "builtin"]),
   pattern: z.string().optional(),
 });
 export type SkippedFile = z.infer<typeof SkippedFileSchema>;
@@ -193,34 +215,44 @@ export const SkillReportSchema = z.object({
   files: z.array(FileReportSchema).optional(),
   /** Model used for this skill's analysis */
   model: z.string().optional(),
+  /** Reasoning traces from LLM analysis (used for inter-skill context compaction in sequential pipeline) */
+  reasoningTraces: z.array(z.string()).optional(),
 });
 export type SkillReport = z.infer<typeof SkillReportSchema>;
 
 // GitHub event types
 export const GitHubEventTypeSchema = z.enum([
-  'pull_request',
-  'pull_request_target',
-  'issues',
-  'issue_comment',
-  'pull_request_review',
-  'pull_request_review_comment',
-  'schedule',
+  "pull_request",
+  "pull_request_target",
+  "issues",
+  "issue_comment",
+  "pull_request_review",
+  "pull_request_review_comment",
+  "schedule",
 ]);
 export type GitHubEventType = z.infer<typeof GitHubEventTypeSchema>;
 
 // Pull request actions
 export const PullRequestActionSchema = z.enum([
-  'opened',
-  'synchronize',
-  'reopened',
-  'closed',
+  "opened",
+  "synchronize",
+  "reopened",
+  "closed",
 ]);
 export type PullRequestAction = z.infer<typeof PullRequestActionSchema>;
 
 // File change info
 export const FileChangeSchema = z.object({
   filename: z.string(),
-  status: z.enum(['added', 'removed', 'modified', 'renamed', 'copied', 'changed', 'unchanged']),
+  status: z.enum([
+    "added",
+    "removed",
+    "modified",
+    "renamed",
+    "copied",
+    "changed",
+    "unchanged",
+  ]),
   additions: z.number().int().nonnegative(),
   deletions: z.number().int().nonnegative(),
   patch: z.string().optional(),
@@ -272,7 +304,11 @@ export const EventContextSchema = z.object({
 export type EventContext = z.infer<typeof EventContextSchema>;
 
 // Fix evaluation status
-export const FixStatusSchema = z.enum(['not_attempted', 'attempted_failed', 'resolved']);
+export const FixStatusSchema = z.enum([
+  "not_attempted",
+  "attempted_failed",
+  "resolved",
+]);
 export type FixStatus = z.infer<typeof FixStatusSchema>;
 
 // Retry configuration for SDK calls

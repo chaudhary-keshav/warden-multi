@@ -1,20 +1,20 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 // -----------------------------------------------------------------------------
 // Fixtures Directory
 // -----------------------------------------------------------------------------
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const FIXTURES_DIR = join(__dirname, '__fixtures__');
-const NO_MATCH_FIXTURES_DIR = join(FIXTURES_DIR, 'no-match');
-const NO_CONFIG_FIXTURES_DIR = join(FIXTURES_DIR, 'no-config');
-const EVENT_PAYLOAD_PATH = join(FIXTURES_DIR, 'event-payloads/pull_request_opened.json');
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const FIXTURES_DIR = join(__dirname, "__fixtures__");
+const NO_MATCH_FIXTURES_DIR = join(FIXTURES_DIR, "no-match");
+const NO_CONFIG_FIXTURES_DIR = join(FIXTURES_DIR, "no-config");
+const EVENT_PAYLOAD_PATH = join(FIXTURES_DIR, "event-payloads/pull_request_opened.json");
 // -----------------------------------------------------------------------------
 // Mocks - ONLY external boundaries: LLM calls
 // -----------------------------------------------------------------------------
 // Mock skill task runner - calls Claude Code SDK (LLM)
-vi.mock('../../cli/output/tasks.js', async () => {
-    const actual = await vi.importActual('../../cli/output/tasks.js');
+vi.mock("../../cli/output/tasks.js", async () => {
+    const actual = await vi.importActual("../../cli/output/tasks.js");
     return {
         ...actual,
         runSkillTask: vi.fn(),
@@ -22,8 +22,8 @@ vi.mock('../../cli/output/tasks.js', async () => {
 });
 // Mock deduplication - has LLM calls (deduplicateFindings) and GitHub API calls (fetchExistingComments)
 // Keep pure functions real
-vi.mock('../../output/dedup.js', async () => {
-    const actual = await vi.importActual('../../output/dedup.js');
+vi.mock("../../output/dedup.js", async () => {
+    const actual = await vi.importActual("../../output/dedup.js");
     return {
         ...actual,
         // Mock functions that make LLM calls
@@ -34,7 +34,7 @@ vi.mock('../../output/dedup.js', async () => {
     };
 });
 // Mock fix evaluation - has LLM calls
-vi.mock('../fix-evaluation/index.js', () => ({
+vi.mock("../fix-evaluation/index.js", () => ({
     evaluateFixAttempts: vi.fn(() => Promise.resolve({
         toResolve: [],
         toReply: [],
@@ -49,25 +49,25 @@ vi.mock('../fix-evaluation/index.js', () => ({
     postThreadReply: vi.fn(() => Promise.resolve()),
 }));
 // Mock base utilities that call process.exit or need system access
-vi.mock('./base.js', async () => {
-    const actual = await vi.importActual('./base.js');
+vi.mock("./base.js", async () => {
+    const actual = await vi.importActual("./base.js");
     return {
         ...actual,
         setFailed: vi.fn((msg) => {
             throw new Error(`setFailed: ${msg}`);
         }),
-        findClaudeCodeExecutable: vi.fn(() => '/usr/local/bin/claude'),
-        getAuthenticatedBotLogin: vi.fn(() => Promise.resolve('warden[bot]')),
+        findClaudeCodeExecutable: vi.fn(() => "/usr/local/bin/claude"),
+        getAuthenticatedBotLogin: vi.fn(() => Promise.resolve("warden[bot]")),
     };
 });
 // Import after mocks
-import { runSkillTask } from '../../cli/output/tasks.js';
-import { fetchExistingComments, deduplicateFindings } from '../../output/dedup.js';
-import { evaluateFixAttempts } from '../fix-evaluation/index.js';
-import { setFailed } from './base.js';
-import { runPRWorkflow } from './pr-workflow.js';
-import { clearSkillsCache } from '../../skills/loader.js';
-import { Semaphore } from '../../utils/index.js';
+import { runSkillTask } from "../../cli/output/tasks.js";
+import { fetchExistingComments, deduplicateFindings, } from "../../output/dedup.js";
+import { evaluateFixAttempts } from "../fix-evaluation/index.js";
+import { setFailed } from "./base.js";
+import { runPRWorkflow } from "./pr-workflow.js";
+import { clearSkillsCache } from "../../skills/loader.js";
+import { Semaphore } from "../../utils/index.js";
 // Type the mocks
 const mockRunSkillTask = vi.mocked(runSkillTask);
 const mockFetchExistingComments = vi.mocked(fetchExistingComments);
@@ -77,8 +77,8 @@ const mockSetFailed = vi.mocked(setFailed);
 function createMockOctokit(options = {}) {
     const defaultFiles = [
         {
-            filename: 'src/test.ts',
-            status: 'modified',
+            filename: "src/test.ts",
+            status: "modified",
             additions: 10,
             deletions: 5,
             patch: '@@ -1,5 +1,10 @@\n+console.log("test")',
@@ -95,11 +95,13 @@ function createMockOctokit(options = {}) {
             dismissReview: vi.fn(() => Promise.resolve({ data: {} })),
         },
         checks: {
-            create: vi.fn(() => Promise.resolve({ data: { id: 1, html_url: 'https://example.com/check' } })),
+            create: vi.fn(() => Promise.resolve({
+                data: { id: 1, html_url: "https://example.com/check" },
+            })),
             update: vi.fn(() => Promise.resolve({ data: {} })),
         },
         apps: {
-            getAuthenticated: vi.fn(() => Promise.resolve({ data: { slug: 'warden' } })),
+            getAuthenticated: vi.fn(() => Promise.resolve({ data: { slug: "warden" } })),
         },
         graphql: vi.fn(() => Promise.resolve({
             repository: {
@@ -121,11 +123,11 @@ function createMockOctokit(options = {}) {
 // -----------------------------------------------------------------------------
 function createDefaultInputs(overrides = {}) {
     return {
-        provider: 'claude',
-        anthropicApiKey: 'test-api-key',
-        oauthToken: '',
-        githubToken: 'test-github-token',
-        configPath: 'warden.toml',
+        provider: "claude",
+        anthropicApiKey: "test-api-key",
+        oauthToken: "",
+        githubToken: "test-github-token",
+        configPath: "warden.toml",
         maxFindings: 50,
         parallel: 2,
         ...overrides,
@@ -133,18 +135,18 @@ function createDefaultInputs(overrides = {}) {
 }
 function createFinding(overrides = {}) {
     return {
-        id: 'finding-1',
-        severity: 'high',
-        title: 'Test Finding',
-        description: 'This is a test finding',
-        location: { path: 'src/test.ts', startLine: 10 },
+        id: "finding-1",
+        severity: "high",
+        title: "Test Finding",
+        description: "This is a test finding",
+        location: { path: "src/test.ts", startLine: 10 },
         ...overrides,
     };
 }
 function createSkillReport(overrides = {}) {
     return {
-        skill: 'test-skill',
-        summary: 'Test summary',
+        skill: "test-skill",
+        summary: "Test summary",
         findings: [],
         ...overrides,
     };
@@ -152,7 +154,7 @@ function createSkillReport(overrides = {}) {
 // -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
-describe('runPRWorkflow', () => {
+describe("runPRWorkflow", () => {
     let mockOctokit;
     let consoleLogSpy;
     let consoleErrorSpy;
@@ -162,58 +164,70 @@ describe('runPRWorkflow', () => {
         clearSkillsCache();
         mockOctokit = createMockOctokit();
         // Default: skill runs successfully with no findings
-        mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report: createSkillReport() });
-        consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-        consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        mockRunSkillTask.mockResolvedValue({
+            name: "test-trigger",
+            report: createSkillReport(),
+        });
+        consoleLogSpy = vi
+            .spyOn(console, "log")
+            .mockImplementation(() => undefined);
+        consoleErrorSpy = vi
+            .spyOn(console, "error")
+            .mockImplementation(() => undefined);
+        consoleWarnSpy = vi
+            .spyOn(console, "warn")
+            .mockImplementation(() => undefined);
     });
     afterEach(() => {
         consoleLogSpy.mockRestore();
         consoleErrorSpy.mockRestore();
         consoleWarnSpy.mockRestore();
     });
-    describe('review posting integration', () => {
-        it('posts review with findings to GitHub', async () => {
+    describe("review posting integration", () => {
+        it("posts review with findings to GitHub", async () => {
             const finding = createFinding();
             const report = createSkillReport({ findings: [finding] });
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report });
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+            mockRunSkillTask.mockResolvedValue({ name: "test-trigger", report });
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             // Verify review was posted to GitHub
             const createReview = vi.mocked(mockOctokit.pulls.createReview);
             expect(createReview).toHaveBeenCalledWith(expect.objectContaining({
-                owner: 'test-owner',
-                repo: 'test-repo',
+                owner: "test-owner",
+                repo: "test-repo",
                 pull_number: 123,
-                commit_id: 'abc123def456',
-                event: 'COMMENT',
+                commit_id: "abc123def456",
+                event: "COMMENT",
                 comments: expect.arrayContaining([
                     expect.objectContaining({
-                        path: 'src/test.ts',
+                        path: "src/test.ts",
                         line: 10,
                     }),
                 ]),
             }));
         });
-        it('does not post review when no findings', async () => {
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report: createSkillReport({ findings: [] }) });
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+        it("does not post review when no findings", async () => {
+            mockRunSkillTask.mockResolvedValue({
+                name: "test-trigger",
+                report: createSkillReport({ findings: [] }),
+            });
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             const createReview = vi.mocked(mockOctokit.pulls.createReview);
             expect(createReview).not.toHaveBeenCalled();
         });
-        it('skips duplicate findings from existing comments', async () => {
+        it("skips duplicate findings from existing comments", async () => {
             const finding = createFinding();
             const report = createSkillReport({ findings: [finding] });
             // Existing comments that will be checked for duplicates
             mockFetchExistingComments.mockResolvedValue([
                 {
                     id: 1,
-                    body: 'Same issue',
-                    path: 'src/test.ts',
+                    body: "Same issue",
+                    path: "src/test.ts",
                     line: 10,
                     isWarden: true,
-                    title: 'Test Finding',
-                    description: 'This is a test finding',
-                    contentHash: 'abc123',
+                    title: "Test Finding",
+                    description: "This is a test finding",
+                    contentHash: "abc123",
                 },
             ]);
             // Dedup returns empty - finding is a duplicate
@@ -221,53 +235,56 @@ describe('runPRWorkflow', () => {
                 newFindings: [],
                 duplicateActions: [
                     {
-                        type: 'react_external',
+                        type: "react_external",
                         finding,
                         existingComment: {
                             id: 1,
-                            body: 'Same issue',
-                            path: 'src/test.ts',
+                            body: "Same issue",
+                            path: "src/test.ts",
                             line: 10,
                             isWarden: true,
-                            title: 'Test Finding',
-                            description: 'This is a test finding',
-                            contentHash: 'abc123',
+                            title: "Test Finding",
+                            description: "This is a test finding",
+                            contentHash: "abc123",
                         },
-                        matchType: 'hash',
+                        matchType: "hash",
                     },
                 ],
             });
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report });
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+            mockRunSkillTask.mockResolvedValue({ name: "test-trigger", report });
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             // No review posted since all findings were duplicates
             const createReview = vi.mocked(mockOctokit.pulls.createReview);
             expect(createReview).not.toHaveBeenCalled();
         });
     });
-    describe('trigger execution', () => {
-        it('runs matched trigger and collects report', async () => {
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report: createSkillReport({ skill: 'test-skill' }) });
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+    describe("trigger execution", () => {
+        it("runs matched trigger and collects report", async () => {
+            mockRunSkillTask.mockResolvedValue({
+                name: "test-trigger",
+                report: createSkillReport({ skill: "test-skill" }),
+            });
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             expect(mockRunSkillTask).toHaveBeenCalledTimes(1);
             const [taskOptions, fileConcurrency, _callbacks, semaphore] = mockRunSkillTask.mock.calls[0];
             expect(taskOptions).toEqual(expect.objectContaining({
-                name: 'test-skill',
-                displayName: 'test-skill',
+                name: "test-skill",
+                displayName: "test-skill",
             }));
             // When a semaphore is provided, fileConcurrency is unlimited (semaphore is the gate)
             expect(fileConcurrency).toBe(Number.MAX_SAFE_INTEGER);
             expect(semaphore).toBeInstanceOf(Semaphore);
         });
-        it('records trigger failure and updates check before failing', async () => {
+        it("records trigger failure and updates check before failing", async () => {
             // When all triggers fail, the workflow should still update the check
             // before calling setFailed.
-            mockRunSkillTask.mockRejectedValueOnce(new Error('Skill failed'));
+            mockRunSkillTask.mockRejectedValueOnce(new Error("Skill failed"));
             // With only one trigger that fails, handleTriggerErrors will call setFailed.
             // Our mock converts this to a thrown error.
             try {
-                await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+                await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
                 // Should not reach here
-                throw new Error('Expected workflow to throw');
+                throw new Error("Expected workflow to throw");
             }
             catch (error) {
                 // Either our mocked setFailed threw, or process.exit was called
@@ -278,245 +295,295 @@ describe('runPRWorkflow', () => {
             expect(updateCheck).toHaveBeenCalled();
         });
     });
-    describe('failure conditions', () => {
-        it('fails when findings exceed fail-on threshold and failCheck is true', async () => {
-            const finding = createFinding({ severity: 'high' });
+    describe("failure conditions", () => {
+        it("fails when findings exceed fail-on threshold and failCheck is true", async () => {
+            const finding = createFinding({ severity: "high" });
             const report = createSkillReport({ findings: [finding] });
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report });
-            await expect(runPRWorkflow(mockOctokit, createDefaultInputs({ failOn: 'high', failCheck: true }), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR)).rejects.toThrow('setFailed');
-            expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('high+ severity'));
+            mockRunSkillTask.mockResolvedValue({ name: "test-trigger", report });
+            await expect(runPRWorkflow(mockOctokit, createDefaultInputs({ failOn: "high", failCheck: true }), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR)).rejects.toThrow("setFailed");
+            expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining("high+ severity"));
         });
-        it('does not fail when findings exceed fail-on threshold but failCheck is false', async () => {
-            const finding = createFinding({ severity: 'high' });
+        it("does not fail when findings exceed fail-on threshold but failCheck is false", async () => {
+            const finding = createFinding({ severity: "high" });
             const report = createSkillReport({ findings: [finding] });
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report });
+            mockRunSkillTask.mockResolvedValue({ name: "test-trigger", report });
             // Should complete without throwing
-            await runPRWorkflow(mockOctokit, createDefaultInputs({ failOn: 'high', failCheck: false }), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+            await runPRWorkflow(mockOctokit, createDefaultInputs({ failOn: "high", failCheck: false }), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             expect(mockSetFailed).not.toHaveBeenCalled();
         });
-        it('does not fail when findings exceed fail-on threshold and failCheck is default (undefined)', async () => {
-            const finding = createFinding({ severity: 'high' });
+        it("does not fail when findings exceed fail-on threshold and failCheck is default (undefined)", async () => {
+            const finding = createFinding({ severity: "high" });
             const report = createSkillReport({ findings: [finding] });
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report });
+            mockRunSkillTask.mockResolvedValue({ name: "test-trigger", report });
             // Should complete without throwing (failCheck defaults to false)
-            await runPRWorkflow(mockOctokit, createDefaultInputs({ failOn: 'high' }), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+            await runPRWorkflow(mockOctokit, createDefaultInputs({ failOn: "high" }), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             expect(mockSetFailed).not.toHaveBeenCalled();
         });
-        it('exits cleanly when warden.toml is missing', async () => {
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, NO_CONFIG_FIXTURES_DIR);
+        it("exits cleanly when warden.toml is missing", async () => {
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, NO_CONFIG_FIXTURES_DIR);
             // Should not fail
             expect(mockSetFailed).not.toHaveBeenCalled();
             // Should not run any skills
             expect(mockRunSkillTask).not.toHaveBeenCalled();
             // Should log a warning
-            expect(consoleLogSpy).toHaveBeenCalledWith('::warning::No warden.toml found. Skipping analysis.');
+            expect(consoleLogSpy).toHaveBeenCalledWith("::warning::No warden.toml found. Skipping analysis.");
         });
-        it('fails when event payload is unreadable', async () => {
-            await expect(runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', '/nonexistent/event.json', FIXTURES_DIR)).rejects.toThrow('setFailed');
+        it("fails when event payload is unreadable", async () => {
+            await expect(runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", "/nonexistent/event.json", FIXTURES_DIR)).rejects.toThrow("setFailed");
         });
     });
-    describe('GitHub check management', () => {
-        it('creates and updates core check for PR events', async () => {
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report: createSkillReport() });
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+    describe("GitHub check management", () => {
+        it("creates and updates core check for PR events", async () => {
+            mockRunSkillTask.mockResolvedValue({
+                name: "test-trigger",
+                report: createSkillReport(),
+            });
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             const createCheck = vi.mocked(mockOctokit.checks.create);
             const updateCheck = vi.mocked(mockOctokit.checks.update);
             // Core check created at start
             expect(createCheck).toHaveBeenCalledWith(expect.objectContaining({
-                owner: 'test-owner',
-                repo: 'test-repo',
-                head_sha: 'abc123def456',
-                name: 'warden',
+                owner: "test-owner",
+                repo: "test-repo",
+                head_sha: "abc123def456",
+                name: "warden",
             }));
             // Core check updated at end
             expect(updateCheck).toHaveBeenCalled();
         });
-        it('creates skill-specific check for each trigger', async () => {
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report: createSkillReport({ skill: 'test-skill' }) });
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+        it("creates skill-specific check for each trigger", async () => {
+            mockRunSkillTask.mockResolvedValue({
+                name: "test-trigger",
+                report: createSkillReport({ skill: "test-skill" }),
+            });
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             const createCheck = vi.mocked(mockOctokit.checks.create);
             // Should have created 2 checks: core + skill-specific
             expect(createCheck).toHaveBeenCalledTimes(2);
             expect(createCheck).toHaveBeenCalledWith(expect.objectContaining({
-                name: expect.stringContaining('test-skill'),
+                name: expect.stringContaining("test-skill"),
             }));
         });
     });
-    describe('event context building', () => {
-        it('passes file changes to skill runner', async () => {
+    describe("event context building", () => {
+        it("passes file changes to skill runner", async () => {
             const customFiles = [
                 {
-                    filename: 'src/custom.ts',
-                    status: 'added',
+                    filename: "src/custom.ts",
+                    status: "added",
                     additions: 50,
                     deletions: 0,
-                    patch: '@@ -0,0 +1,50 @@\n+// new file',
+                    patch: "@@ -0,0 +1,50 @@\n+// new file",
                 },
             ];
             mockOctokit = createMockOctokit({ prFiles: customFiles });
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report: createSkillReport() });
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+            mockRunSkillTask.mockResolvedValue({
+                name: "test-trigger",
+                report: createSkillReport(),
+            });
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             // runSkillTask receives options with context containing the custom files
             const [taskOptions, fileConcurrency, _callbacks, semaphore] = mockRunSkillTask.mock.calls[0];
             expect(taskOptions.context.pullRequest?.files).toEqual(expect.arrayContaining([
                 expect.objectContaining({
-                    filename: 'src/custom.ts',
-                    status: 'added',
+                    filename: "src/custom.ts",
+                    status: "added",
                 }),
             ]));
             expect(fileConcurrency).toBe(Number.MAX_SAFE_INTEGER);
             expect(semaphore).toBeInstanceOf(Semaphore);
         });
     });
-    describe('review dismissal', () => {
-        it('dismisses previous CHANGES_REQUESTED when all comments resolved', async () => {
+    describe("review dismissal", () => {
+        it("dismisses previous CHANGES_REQUESTED when all comments resolved", async () => {
             // Previous review was CHANGES_REQUESTED
             vi.mocked(mockOctokit.pulls.listReviews).mockResolvedValue({
-                data: [{ id: 42, state: 'CHANGES_REQUESTED', user: { login: 'warden[bot]' } }],
+                data: [
+                    {
+                        id: 42,
+                        state: "CHANGES_REQUESTED",
+                        user: { login: "warden[bot]" },
+                    },
+                ],
             });
             // Current run has no findings
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report: createSkillReport({ findings: [] }) });
+            mockRunSkillTask.mockResolvedValue({
+                name: "test-trigger",
+                report: createSkillReport({ findings: [] }),
+            });
             // failOn must be configured for dismiss to work
-            await runPRWorkflow(mockOctokit, createDefaultInputs({ failOn: 'high' }), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+            await runPRWorkflow(mockOctokit, createDefaultInputs({ failOn: "high" }), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             const dismissReview = vi.mocked(mockOctokit.pulls.dismissReview);
             expect(dismissReview).toHaveBeenCalledWith(expect.objectContaining({
-                owner: 'test-owner',
-                repo: 'test-repo',
+                owner: "test-owner",
+                repo: "test-repo",
                 pull_number: 123,
                 review_id: 42,
-                message: expect.stringContaining('resolved'),
+                message: expect.stringContaining("resolved"),
             }));
         });
-        it('does not dismiss when unresolved blocking findings remain', async () => {
+        it("does not dismiss when unresolved blocking findings remain", async () => {
             // Previous review was CHANGES_REQUESTED
             vi.mocked(mockOctokit.pulls.listReviews).mockResolvedValue({
-                data: [{ id: 42, state: 'CHANGES_REQUESTED', user: { login: 'warden[bot]' } }],
+                data: [
+                    {
+                        id: 42,
+                        state: "CHANGES_REQUESTED",
+                        user: { login: "warden[bot]" },
+                    },
+                ],
             });
             // Current run still has blocking findings
-            const finding = createFinding({ severity: 'high' });
+            const finding = createFinding({ severity: "high" });
             mockRunSkillTask.mockResolvedValue({
-                name: 'test-trigger',
+                name: "test-trigger",
                 report: createSkillReport({ findings: [finding] }),
             });
-            await runPRWorkflow(mockOctokit, createDefaultInputs({ failOn: 'high', requestChanges: true }), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+            await runPRWorkflow(mockOctokit, createDefaultInputs({ failOn: "high", requestChanges: true }), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             const dismissReview = vi.mocked(mockOctokit.pulls.dismissReview);
             expect(dismissReview).not.toHaveBeenCalled();
         });
-        it('does not dismiss when no previous CHANGES_REQUESTED review', async () => {
+        it("does not dismiss when no previous CHANGES_REQUESTED review", async () => {
             // Previous review was just a COMMENT (not CHANGES_REQUESTED)
             vi.mocked(mockOctokit.pulls.listReviews).mockResolvedValue({
-                data: [{ id: 42, state: 'COMMENTED', user: { login: 'warden[bot]' } }],
+                data: [{ id: 42, state: "COMMENTED", user: { login: "warden[bot]" } }],
             });
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report: createSkillReport({ findings: [] }) });
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+            mockRunSkillTask.mockResolvedValue({
+                name: "test-trigger",
+                report: createSkillReport({ findings: [] }),
+            });
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             const dismissReview = vi.mocked(mockOctokit.pulls.dismissReview);
             expect(dismissReview).not.toHaveBeenCalled();
         });
-        it('does not dismiss when failOn is removed from config', async () => {
+        it("does not dismiss when failOn is removed from config", async () => {
             // Previous review was CHANGES_REQUESTED (from when failOn was configured)
             vi.mocked(mockOctokit.pulls.listReviews).mockResolvedValue({
-                data: [{ id: 42, state: 'CHANGES_REQUESTED', user: { login: 'warden[bot]' } }],
+                data: [
+                    {
+                        id: 42,
+                        state: "CHANGES_REQUESTED",
+                        user: { login: "warden[bot]" },
+                    },
+                ],
             });
             // Current run has no findings and no failOn — config was changed between runs
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report: createSkillReport({ findings: [] }) });
-            await runPRWorkflow(mockOctokit, createDefaultInputs({ failOn: undefined }), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+            mockRunSkillTask.mockResolvedValue({
+                name: "test-trigger",
+                report: createSkillReport({ findings: [] }),
+            });
+            await runPRWorkflow(mockOctokit, createDefaultInputs({ failOn: undefined }), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             // Should NOT dismiss — without failOn we can't verify the threshold is still met
             const dismissReview = vi.mocked(mockOctokit.pulls.dismissReview);
             expect(dismissReview).not.toHaveBeenCalled();
         });
     });
-    describe('fix evaluation integration', () => {
-        it('calls evaluateFixAttempts when unresolved Warden comments exist', async () => {
+    describe("fix evaluation integration", () => {
+        it("calls evaluateFixAttempts when unresolved Warden comments exist", async () => {
             // Existing unresolved Warden comments
             mockFetchExistingComments.mockResolvedValue([
                 {
                     id: 1,
-                    path: 'src/test.ts',
+                    path: "src/test.ts",
                     line: 10,
-                    title: 'SQL injection',
-                    description: 'User input in query',
-                    contentHash: 'abc',
+                    title: "SQL injection",
+                    description: "User input in query",
+                    contentHash: "abc",
                     isWarden: true,
                     isResolved: false,
-                    threadId: 'thread-1',
+                    threadId: "thread-1",
                 },
             ]);
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report: createSkillReport() });
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+            mockRunSkillTask.mockResolvedValue({
+                name: "test-trigger",
+                report: createSkillReport(),
+            });
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             expect(mockEvaluateFixAttempts).toHaveBeenCalledWith(mockOctokit, expect.arrayContaining([expect.objectContaining({ isWarden: true })]), expect.objectContaining({
-                owner: 'test-owner',
-                repo: 'test-repo',
-                baseSha: 'base123sha456',
-                headSha: 'abc123def456',
-            }), expect.any(Array), 'test-api-key', undefined);
+                owner: "test-owner",
+                repo: "test-repo",
+                baseSha: "base123sha456",
+                headSha: "abc123def456",
+            }), expect.any(Array), "test-api-key", undefined);
         });
-        it('does not call evaluateFixAttempts when no existing comments', async () => {
+        it("does not call evaluateFixAttempts when no existing comments", async () => {
             mockFetchExistingComments.mockResolvedValue([]);
-            mockRunSkillTask.mockResolvedValue({ name: 'test-trigger', report: createSkillReport() });
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, FIXTURES_DIR);
+            mockRunSkillTask.mockResolvedValue({
+                name: "test-trigger",
+                report: createSkillReport(),
+            });
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, FIXTURES_DIR);
             expect(mockEvaluateFixAttempts).not.toHaveBeenCalled();
         });
     });
-    describe('no triggers matched cleanup', () => {
-        it('resolves stale comments when no triggers match but Warden comments exist', async () => {
+    describe("no triggers matched cleanup", () => {
+        it("resolves stale comments when no triggers match but Warden comments exist", async () => {
             // PR files are src/test.ts, but no-match fixture has paths: ["docs/**"]
             // so no triggers will match
             mockFetchExistingComments.mockResolvedValue([
                 {
                     id: 1,
-                    path: 'src/old-file.ts',
+                    path: "src/old-file.ts",
                     line: 5,
-                    title: 'Unused import',
-                    description: 'Remove unused import',
-                    contentHash: 'hash1',
+                    title: "Unused import",
+                    description: "Remove unused import",
+                    contentHash: "hash1",
                     isWarden: true,
                     isResolved: false,
-                    threadId: 'thread-1',
+                    threadId: "thread-1",
                 },
             ]);
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, NO_MATCH_FIXTURES_DIR);
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, NO_MATCH_FIXTURES_DIR);
             // Should fetch existing comments for cleanup
-            expect(mockFetchExistingComments).toHaveBeenCalledWith(mockOctokit, 'test-owner', 'test-repo', 123);
+            expect(mockFetchExistingComments).toHaveBeenCalledWith(mockOctokit, "test-owner", "test-repo", 123);
             // Should run fix evaluation with empty findings
             expect(mockEvaluateFixAttempts).toHaveBeenCalledWith(mockOctokit, expect.arrayContaining([expect.objectContaining({ isWarden: true })]), expect.objectContaining({
-                owner: 'test-owner',
-                repo: 'test-repo',
-            }), [], 'test-api-key', undefined);
+                owner: "test-owner",
+                repo: "test-repo",
+            }), [], "test-api-key", undefined);
             // Should NOT run skill tasks (no triggers matched)
             expect(mockRunSkillTask).not.toHaveBeenCalled();
         });
-        it('dismisses CHANGES_REQUESTED when all comments resolved during cleanup', async () => {
+        it("dismisses CHANGES_REQUESTED when all comments resolved during cleanup", async () => {
             // Previous review was CHANGES_REQUESTED
             vi.mocked(mockOctokit.pulls.listReviews).mockResolvedValue({
-                data: [{ id: 42, state: 'CHANGES_REQUESTED', user: { login: 'warden[bot]' } }],
+                data: [
+                    {
+                        id: 42,
+                        state: "CHANGES_REQUESTED",
+                        user: { login: "warden[bot]" },
+                    },
+                ],
             });
             // One unresolved Warden comment
             mockFetchExistingComments.mockResolvedValue([
                 {
                     id: 1,
-                    path: 'src/old-file.ts',
+                    path: "src/old-file.ts",
                     line: 5,
-                    title: 'Bug',
-                    description: 'Fix this',
-                    contentHash: 'hash1',
+                    title: "Bug",
+                    description: "Fix this",
+                    contentHash: "hash1",
                     isWarden: true,
                     isResolved: false,
-                    threadId: 'thread-1',
+                    threadId: "thread-1",
                 },
             ]);
             // Fix evaluation resolves the comment
             mockEvaluateFixAttempts.mockResolvedValue({
-                toResolve: [{
+                toResolve: [
+                    {
                         id: 1,
-                        path: 'src/old-file.ts',
+                        path: "src/old-file.ts",
                         line: 5,
-                        title: 'Bug',
-                        description: 'Fix this',
-                        contentHash: 'hash1',
+                        title: "Bug",
+                        description: "Fix this",
+                        contentHash: "hash1",
                         isWarden: true,
                         isResolved: false,
-                        threadId: 'thread-1',
-                    }],
+                        threadId: "thread-1",
+                    },
+                ],
                 toReply: [],
                 evaluations: [],
                 skipped: 0,
@@ -527,53 +594,61 @@ describe('runPRWorkflow', () => {
                 uniqueFindingsResolved: 1,
                 usage: { inputTokens: 0, outputTokens: 0, costUSD: 0 },
             });
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, NO_MATCH_FIXTURES_DIR);
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, NO_MATCH_FIXTURES_DIR);
             const dismissReview = vi.mocked(mockOctokit.pulls.dismissReview);
             expect(dismissReview).toHaveBeenCalledWith(expect.objectContaining({
-                owner: 'test-owner',
-                repo: 'test-repo',
+                owner: "test-owner",
+                repo: "test-repo",
                 pull_number: 123,
                 review_id: 42,
-                message: expect.stringContaining('resolved'),
+                message: expect.stringContaining("resolved"),
             }));
         });
-        it('does NOT dismiss when unresolved comments remain after cleanup', async () => {
+        it("does NOT dismiss when unresolved comments remain after cleanup", async () => {
             // Previous review was CHANGES_REQUESTED
             vi.mocked(mockOctokit.pulls.listReviews).mockResolvedValue({
-                data: [{ id: 42, state: 'CHANGES_REQUESTED', user: { login: 'warden[bot]' } }],
+                data: [
+                    {
+                        id: 42,
+                        state: "CHANGES_REQUESTED",
+                        user: { login: "warden[bot]" },
+                    },
+                ],
             });
             // One unresolved Warden comment
             mockFetchExistingComments.mockResolvedValue([
                 {
                     id: 1,
-                    path: 'src/old-file.ts',
+                    path: "src/old-file.ts",
                     line: 5,
-                    title: 'Bug',
-                    description: 'Fix this',
-                    contentHash: 'hash1',
+                    title: "Bug",
+                    description: "Fix this",
+                    contentHash: "hash1",
                     isWarden: true,
                     isResolved: false,
-                    threadId: 'thread-1',
+                    threadId: "thread-1",
                 },
             ]);
             // Fix evaluation says comment is NOT fixed (toReply has it)
             mockEvaluateFixAttempts.mockResolvedValue({
                 toResolve: [],
-                toReply: [{
+                toReply: [
+                    {
                         comment: {
                             id: 1,
-                            path: 'src/old-file.ts',
+                            path: "src/old-file.ts",
                             line: 5,
-                            title: 'Bug',
-                            description: 'Fix this',
-                            contentHash: 'hash1',
+                            title: "Bug",
+                            description: "Fix this",
+                            contentHash: "hash1",
                             isWarden: true,
                             isResolved: false,
-                            threadId: 'thread-1',
+                            threadId: "thread-1",
                         },
-                        replyBody: 'Still not fixed',
-                        commitSha: 'abc123def456',
-                    }],
+                        replyBody: "Still not fixed",
+                        commitSha: "abc123def456",
+                    },
+                ],
                 evaluations: [],
                 skipped: 0,
                 evaluated: 1,
@@ -583,32 +658,32 @@ describe('runPRWorkflow', () => {
                 uniqueFindingsResolved: 0,
                 usage: { inputTokens: 0, outputTokens: 0, costUSD: 0 },
             });
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, NO_MATCH_FIXTURES_DIR);
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, NO_MATCH_FIXTURES_DIR);
             const dismissReview = vi.mocked(mockOctokit.pulls.dismissReview);
             expect(dismissReview).not.toHaveBeenCalled();
         });
-        it('skips cleanup when no existing Warden comments', async () => {
+        it("skips cleanup when no existing Warden comments", async () => {
             mockFetchExistingComments.mockResolvedValue([]);
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, NO_MATCH_FIXTURES_DIR);
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, NO_MATCH_FIXTURES_DIR);
             // fetchExistingComments called, but evaluateFixAttempts should NOT be called
             expect(mockFetchExistingComments).toHaveBeenCalled();
             expect(mockEvaluateFixAttempts).not.toHaveBeenCalled();
         });
-        it('skips cleanup when only non-Warden comments exist', async () => {
+        it("skips cleanup when only non-Warden comments exist", async () => {
             // External comments should not trigger cleanup
             mockFetchExistingComments.mockResolvedValue([
                 {
                     id: 1,
-                    path: 'src/test.ts',
+                    path: "src/test.ts",
                     line: 10,
-                    title: 'Human review',
-                    description: 'Please fix this',
-                    contentHash: 'hash1',
+                    title: "Human review",
+                    description: "Please fix this",
+                    contentHash: "hash1",
                     isWarden: false,
                     isResolved: false,
                 },
             ]);
-            await runPRWorkflow(mockOctokit, createDefaultInputs(), 'pull_request', EVENT_PAYLOAD_PATH, NO_MATCH_FIXTURES_DIR);
+            await runPRWorkflow(mockOctokit, createDefaultInputs(), "pull_request", EVENT_PAYLOAD_PATH, NO_MATCH_FIXTURES_DIR);
             // Comments fetched, but no fix evaluation since no Warden comments
             expect(mockFetchExistingComments).toHaveBeenCalled();
             expect(mockEvaluateFixAttempts).not.toHaveBeenCalled();

@@ -7,7 +7,7 @@ user-invocable: false
 
 # CodeTrellis Verification Agent
 
-You are the quality gate for the **warden** project.
+You are the quality gate for the **warden-multi** project.
 
 ## Primary Responsibilities
 

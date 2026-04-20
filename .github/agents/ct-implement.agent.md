@@ -7,7 +7,7 @@ user-invocable: false
 
 # CodeTrellis Implementation Agent
 
-You are the execution specialist for the **warden** project.
+You are the execution specialist for the **warden-multi** project.
 
 ## Primary Responsibilities
 

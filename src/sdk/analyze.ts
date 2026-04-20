@@ -1,4 +1,8 @@
-import { query, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
+import {
+  query,
+  type SDKResultMessage,
+  type McpServerConfig as ClaudeMcpServerConfig,
+} from "@anthropic-ai/claude-agent-sdk";
 import type { SkillDefinition } from "../config/schema.js";
 import type { Finding, RetryConfig } from "../types/index.js";
 import { getHunkLineRange, type HunkWithContext } from "../diff/index.js";
@@ -29,6 +33,7 @@ import {
 import {
   buildHunkSystemPrompt,
   buildHunkUserPrompt,
+  buildAugmentedSystemPrompt,
   type PRPromptContext,
 } from "./prompt.js";
 import {
@@ -67,6 +72,8 @@ interface ParseHunkOutputResult {
   extractionPreview?: string;
   /** Usage from LLM extraction fallback, if invoked */
   extractionUsage?: UsageStats;
+  /** Reasoning trace from the LLM's analysis */
+  reasoning?: string;
 }
 
 /**
@@ -94,6 +101,7 @@ async function parseHunkOutput(
       findings: validateFindings(extracted.findings, filename),
       extractionFailed: false,
       extractionMethod: "regex",
+      reasoning: extracted.reasoning,
     };
   }
 
@@ -182,9 +190,12 @@ async function executeQueryWithProvider(
   userPrompt: string,
   repoPath: string,
   options: SkillRunnerOptions,
-  skillName: string,
+  _skillName: string,
 ): Promise<QueryExecutionResult> {
-  const provider = options.provider!;
+  const provider = options.provider;
+  if (!provider) {
+    throw new Error("Provider is required for executeQueryWithProvider");
+  }
   const queryResult = await provider.query({
     systemPrompt,
     userPrompt,
@@ -193,6 +204,7 @@ async function executeQueryWithProvider(
     repoPath,
     apiKey: options.apiKey,
     abortSignal: options.abortController?.signal,
+    mcpServers: options.mcpServers,
   });
 
   if (!queryResult.success) {
@@ -313,6 +325,15 @@ async function executeQuery(
           model,
           abortController,
           pathToClaudeCodeExecutable,
+          // Pass MCP servers natively for Claude SDK
+          ...(options.mcpServers && Object.keys(options.mcpServers).length > 0
+            ? {
+                mcpServers: options.mcpServers as Record<
+                  string,
+                  ClaudeMcpServerConfig
+                >,
+              }
+            : {}),
           stderr: (data: string) => {
             stderrChunks.push(data);
           },
@@ -530,7 +551,11 @@ async function analyzeHunk(
     async (span) => {
       const { apiKey, abortController, retry } = options;
 
-      const systemPrompt = buildHunkSystemPrompt(skill);
+      const systemPrompt = options.pipelineState
+        ? buildAugmentedSystemPrompt(skill, options.pipelineState, {
+            includeFindings: options.pipelineState.includeFindings,
+          })
+        : buildHunkSystemPrompt(skill);
       const userPrompt = buildHunkUserPrompt(skill, hunkCtx, prContext);
 
       // Report prompt size information
@@ -715,6 +740,7 @@ async function analyzeHunk(
             auxiliaryUsage: parseResult.extractionUsage
               ? [{ agent: "extraction", usage: parseResult.extractionUsage }]
               : undefined,
+            reasoning: parseResult.reasoning,
           };
         } catch (error) {
           lastError = error;
@@ -876,6 +902,7 @@ export async function analyzeFile(
       const fileFindings: Finding[] = [];
       const fileUsage: UsageStats[] = [];
       const fileAuxiliaryUsage: AuxiliaryUsageEntry[] = [];
+      const fileReasoningTraces: string[] = [];
       let failedHunks = 0;
       let failedExtractions = 0;
 
@@ -912,6 +939,9 @@ export async function analyzeFile(
         if (result.extractionFailed) {
           failedExtractions++;
         }
+        if (result.reasoning) {
+          fileReasoningTraces.push(result.reasoning);
+        }
 
         attachElapsedTime(result.findings, callbacks?.skillStartTime);
         callbacks?.onHunkComplete?.(
@@ -939,6 +969,8 @@ export async function analyzeFile(
         failedExtractions,
         auxiliaryUsage:
           fileAuxiliaryUsage.length > 0 ? fileAuxiliaryUsage : undefined,
+        reasoningTraces:
+          fileReasoningTraces.length > 0 ? fileReasoningTraces : undefined,
       };
     },
   );
@@ -1016,6 +1048,7 @@ export async function runSkill(
   // Track all usage stats for aggregation
   const allUsage: UsageStats[] = [];
   const allAuxiliaryUsage: AuxiliaryUsageEntry[] = [];
+  const allReasoningTraces: string[] = [];
 
   // Track failed hunks across all files
   let totalFailedHunks = 0;
@@ -1181,6 +1214,9 @@ export async function runSkill(
     if (fr.result.auxiliaryUsage) {
       allAuxiliaryUsage.push(...fr.result.auxiliaryUsage);
     }
+    if (fr.result.reasoningTraces) {
+      allReasoningTraces.push(...fr.result.reasoningTraces);
+    }
   }
 
   // Check if all analysis failed (indicates a systemic problem like auth failure)
@@ -1255,6 +1291,9 @@ export async function runSkill(
       usage: fr.result.usage,
     })),
   };
+  if (allReasoningTraces.length > 0) {
+    report.reasoningTraces = allReasoningTraces;
+  }
   if (skippedFiles.length > 0) {
     report.skippedFiles = skippedFiles;
   }

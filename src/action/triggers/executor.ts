@@ -5,34 +5,46 @@
  * Extracted from main.ts to enable isolated testing and clearer dependencies.
  */
 
-import type { Octokit } from '@octokit/rest';
-import { Sentry } from '../../sentry.js';
-import { ActionFailedError } from '../workflow/base.js';
-import type { ResolvedTrigger } from '../../config/loader.js';
-import type { WardenConfig } from '../../config/schema.js';
-import type { EventContext, SkillReport, SeverityThreshold, ConfidenceThreshold } from '../../types/index.js';
-import type { RenderResult } from '../../output/types.js';
-import type { OutputMode } from '../../cli/output/tty.js';
-import { resolveSkillAsync } from '../../skills/loader.js';
-import { filterContextByPaths } from '../../triggers/matcher.js';
-import { runSkillTask, createDefaultCallbacks } from '../../cli/output/tasks.js';
-import type { SkillTaskOptions } from '../../cli/output/tasks.js';
-import { renderSkillReport } from '../../output/renderer.js';
+import type { Octokit } from "@octokit/rest";
+import { Sentry } from "../../sentry.js";
+import { ActionFailedError } from "../workflow/base.js";
+import type { ResolvedTrigger } from "../../config/loader.js";
+import type { WardenConfig } from "../../config/schema.js";
+import type {
+  EventContext,
+  SkillReport,
+  SeverityThreshold,
+  ConfidenceThreshold,
+} from "../../types/index.js";
+import type { RenderResult } from "../../output/types.js";
+import type { OutputMode } from "../../cli/output/tty.js";
+import { resolveSkillAsync } from "../../skills/loader.js";
+import { filterContextByPaths } from "../../triggers/matcher.js";
+import {
+  runSkillTask,
+  createDefaultCallbacks,
+} from "../../cli/output/tasks.js";
+import type { SkillTaskOptions } from "../../cli/output/tasks.js";
+import { renderSkillReport } from "../../output/renderer.js";
 import {
   createSkillCheck,
   updateSkillCheck,
   failSkillCheck,
-} from '../../output/github-checks.js';
-import { logGroup, logGroupEnd } from '../workflow/base.js';
-import { DEFAULT_FILE_CONCURRENCY } from '../../sdk/types.js';
-import type { Semaphore } from '../../utils/index.js';
-import { Verbosity } from '../../cli/output/verbosity.js';
-import { createProvider } from '../../providers/index.js';
-import type { LLMProvider } from '../../providers/types.js';
-import type { ProviderName } from '../../providers/types.js';
+} from "../../output/github-checks.js";
+import { logGroup, logGroupEnd } from "../workflow/base.js";
+import { DEFAULT_FILE_CONCURRENCY } from "../../sdk/types.js";
+import type { Semaphore } from "../../utils/index.js";
+import { Verbosity } from "../../cli/output/verbosity.js";
+import type { LLMProvider } from "../../providers/types.js";
+import type { McpServerConfig } from "../../providers/types.js";
+import type { PipelineState } from "../../pipeline/types.js";
 
 /** Log-mode output for CI: no TTY, no color. */
-const CI_OUTPUT_MODE: OutputMode = { isTTY: false, supportsColor: false, columns: 120 };
+const CI_OUTPUT_MODE: OutputMode = {
+  isTTY: false,
+  supportsColor: false,
+  columns: 120,
+};
 
 // -----------------------------------------------------------------------------
 // Types
@@ -62,6 +74,10 @@ export interface TriggerExecutorDeps {
   globalFailCheck?: boolean;
   /** Global semaphore for limiting concurrent file analyses across triggers */
   semaphore?: Semaphore;
+  /** MCP server configurations */
+  mcpServers?: Record<string, McpServerConfig>;
+  /** Pipeline state for sequential execution (augmented prompts) */
+  pipelineState?: PipelineState;
 }
 
 /**
@@ -96,19 +112,27 @@ export interface TriggerResult {
  */
 export async function executeTrigger(
   trigger: ResolvedTrigger,
-  deps: TriggerExecutorDeps
+  deps: TriggerExecutorDeps,
 ): Promise<TriggerResult> {
   return Sentry.startSpan(
-    { op: 'trigger.execute', name: `execute ${trigger.name}` },
+    { op: "trigger.execute", name: `execute ${trigger.name}` },
     async (span) => {
-      span.setAttribute('skill.name', trigger.skill);
-      const { octokit, context, config, anthropicApiKey, claudePath, provider } = deps;
+      span.setAttribute("skill.name", trigger.skill);
+      const {
+        octokit,
+        context,
+        config,
+        anthropicApiKey,
+        claudePath,
+        provider,
+      } = deps;
 
       // Resolve the API key based on the provider
-      const resolvedApiKey = anthropicApiKey
-        || process.env['OPENAI_API_KEY']
-        || process.env['GEMINI_API_KEY']
-        || '';
+      const resolvedApiKey =
+        anthropicApiKey ||
+        process.env["OPENAI_API_KEY"] ||
+        process.env["GEMINI_API_KEY"] ||
+        "";
 
       logGroup(`Running trigger: ${trigger.name} (skill: ${trigger.skill})`);
 
@@ -125,14 +149,17 @@ export async function executeTrigger(
           skillCheckId = skillCheck.checkRunId;
           skillCheckUrl = skillCheck.url;
         } catch (error) {
-          console.error(`::warning::Failed to create skill check for ${trigger.skill}: ${error}`);
+          console.error(
+            `::warning::Failed to create skill check for ${trigger.skill}: ${error}`,
+          );
         }
       }
 
       const failOn = trigger.failOn ?? deps.globalFailOn;
       const reportOn = trigger.reportOn ?? deps.globalReportOn;
-      const minConfidence = trigger.minConfidence ?? 'medium';
-      const requestChanges = trigger.requestChanges ?? deps.globalRequestChanges;
+      const minConfidence = trigger.minConfidence ?? "medium";
+      const requestChanges =
+        trigger.requestChanges ?? deps.globalRequestChanges;
       const failCheck = trigger.failCheck ?? deps.globalFailCheck;
 
       try {
@@ -140,9 +167,10 @@ export async function executeTrigger(
           name: trigger.name,
           displayName: trigger.skill,
           failOn,
-          resolveSkill: () => resolveSkillAsync(trigger.skill, context.repoPath, {
-            remote: trigger.remote,
-          }),
+          resolveSkill: () =>
+            resolveSkillAsync(trigger.skill, context.repoPath, {
+              remote: trigger.remote,
+            }),
           context: filterContextByPaths(context, trigger.filters),
           runnerOptions: {
             apiKey: resolvedApiKey,
@@ -153,16 +181,29 @@ export async function executeTrigger(
             pathToClaudeCodeExecutable: claudePath,
             auxiliaryMaxRetries: config.defaults?.auxiliaryMaxRetries,
             provider,
+            mcpServers: deps.mcpServers,
+            pipelineState: deps.pipelineState,
           },
         };
 
-        const callbacks = createDefaultCallbacks([taskOptions], CI_OUTPUT_MODE, Verbosity.Normal);
-        const fileConcurrency = deps.semaphore ? Number.MAX_SAFE_INTEGER : DEFAULT_FILE_CONCURRENCY;
-        const result = await runSkillTask(taskOptions, fileConcurrency, callbacks, deps.semaphore);
+        const callbacks = createDefaultCallbacks(
+          [taskOptions],
+          CI_OUTPUT_MODE,
+          Verbosity.Normal,
+        );
+        const fileConcurrency = deps.semaphore
+          ? Number.MAX_SAFE_INTEGER
+          : DEFAULT_FILE_CONCURRENCY;
+        const result = await runSkillTask(
+          taskOptions,
+          fileConcurrency,
+          callbacks,
+          deps.semaphore,
+        );
         const report = result.report;
 
         if (!report) {
-          throw result.error ?? new Error('Skill task returned no report');
+          throw result.error ?? new Error("Skill task returned no report");
         }
 
         console.log(`Found ${report.findings.length} findings`);
@@ -180,13 +221,15 @@ export async function executeTrigger(
               failCheck,
             });
           } catch (error) {
-            console.error(`::warning::Failed to update skill check for ${trigger.skill}: ${error}`);
+            console.error(
+              `::warning::Failed to update skill check for ${trigger.skill}: ${error}`,
+            );
           }
         }
 
         const maxFindings = trigger.maxFindings ?? deps.globalMaxFindings;
         const renderResult =
-          reportOn !== 'off'
+          reportOn !== "off"
             ? renderSkillReport(report, {
                 maxFindings,
                 reportOn,
@@ -215,7 +258,7 @@ export async function executeTrigger(
       } catch (error) {
         if (error instanceof ActionFailedError) throw error;
         Sentry.captureException(error, {
-          tags: { 'trigger.name': trigger.name, 'skill.name': trigger.skill },
+          tags: { "trigger.name": trigger.name, "skill.name": trigger.skill },
         });
 
         // Mark skill check as failed
@@ -227,7 +270,9 @@ export async function executeTrigger(
               headSha: context.pullRequest.headSha,
             });
           } catch (checkError) {
-            console.error(`::warning::Failed to mark skill check as failed: ${checkError}`);
+            console.error(
+              `::warning::Failed to mark skill check as failed: ${checkError}`,
+            );
           }
         }
 

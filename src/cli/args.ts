@@ -1,9 +1,12 @@
-import { existsSync } from 'node:fs';
-import { parseArgs } from 'node:util';
-import { z } from 'zod';
-import { SeverityThresholdSchema, ConfidenceThresholdSchema } from '../types/index.js';
-import type { SeverityThreshold, ConfidenceThreshold } from '../types/index.js';
-import { getVersion } from '../utils/index.js';
+import { existsSync } from "node:fs";
+import { parseArgs } from "node:util";
+import { z } from "zod";
+import {
+  SeverityThresholdSchema,
+  ConfidenceThresholdSchema,
+} from "../types/index.js";
+import type { SeverityThreshold, ConfidenceThreshold } from "../types/index.js";
+import { getVersion } from "../utils/index.js";
 
 export const CLIOptionsSchema = z.object({
   targets: z.array(z.string()).optional(),
@@ -45,6 +48,8 @@ export const CLIOptionsSchema = z.object({
   offline: z.boolean().default(false),
   /** Stop after first finding */
   failFast: z.boolean().default(false),
+  /** LLM provider to use (claude, openai, gemini) */
+  provider: z.enum(["claude", "openai", "gemini"]).optional(),
 });
 
 export type CLIOptions = z.infer<typeof CLIOptionsSchema>;
@@ -57,7 +62,7 @@ export interface SetupAppOptions {
   open: boolean;
 }
 
-export type LogsSubcommand = 'list' | 'show' | 'gc';
+export type LogsSubcommand = "list" | "show" | "gc";
 
 export interface LogsOptions {
   subcommand: LogsSubcommand;
@@ -65,7 +70,15 @@ export interface LogsOptions {
 }
 
 export interface ParsedArgs {
-  command: 'run' | 'help' | 'init' | 'add' | 'version' | 'setup-app' | 'sync' | 'logs';
+  command:
+    | "run"
+    | "help"
+    | "init"
+    | "add"
+    | "version"
+    | "setup-app"
+    | "sync"
+    | "logs";
   options: CLIOptions;
   setupAppOptions?: SetupAppOptions;
   logsOptions?: LogsOptions;
@@ -184,59 +197,65 @@ export interface DetectTargetTypeOptions {
  * For ambiguous targets (no path separators, no extension), checks
  * if a file/directory exists at that path before defaulting to git ref.
  */
-export function detectTargetType(target: string, options: DetectTargetTypeOptions = {}): 'git' | 'file' {
+export function detectTargetType(
+  target: string,
+  options: DetectTargetTypeOptions = {},
+): "git" | "file" {
   const { cwd = process.cwd(), forceGit = false } = options;
 
   // Git range syntax (e.g., main..feature, HEAD~3..HEAD)
-  if (target.includes('..')) {
-    return 'git';
+  if (target.includes("..")) {
+    return "git";
   }
 
   // Relative ref syntax (e.g., HEAD~3, main^2)
   if (/[~^]\d*$/.test(target)) {
-    return 'git';
+    return "git";
   }
 
   // Common git refs
   if (/^(HEAD|FETCH_HEAD|ORIG_HEAD|MERGE_HEAD)$/i.test(target)) {
-    return 'git';
+    return "git";
   }
 
   // Contains path separators or glob characters → file
-  if (target.includes('/') || target.includes('*') || target.includes('?')) {
-    return 'file';
+  if (target.includes("/") || target.includes("*") || target.includes("?")) {
+    return "file";
   }
 
   // Has a file extension → file
   if (/\.\w+$/.test(target)) {
-    return 'file';
+    return "file";
   }
 
   // Ambiguous target (no path separators, no extension)
   // If --git flag is set, force git ref interpretation
   if (forceGit) {
-    return 'git';
+    return "git";
   }
 
   // Check if file/directory exists at this path
   const fullPath = `${cwd}/${target}`;
   if (existsSync(fullPath)) {
-    return 'file';
+    return "file";
   }
 
   // Default to git ref (will be validated later)
-  return 'git';
+  return "git";
 }
 
 /**
  * Classify targets into git refs and file patterns.
  */
-export function classifyTargets(targets: string[], options: DetectTargetTypeOptions = {}): { gitRefs: string[]; filePatterns: string[] } {
+export function classifyTargets(
+  targets: string[],
+  options: DetectTargetTypeOptions = {},
+): { gitRefs: string[]; filePatterns: string[] } {
   const gitRefs: string[] = [];
   const filePatterns: string[] = [];
 
   for (const target of targets) {
-    if (detectTargetType(target, options) === 'git') {
+    if (detectTargetType(target, options) === "git") {
       gitRefs.push(target);
     } else {
       filePatterns.push(target);
@@ -250,8 +269,11 @@ export function classifyTargets(targets: string[], options: DetectTargetTypeOpti
  * Resolve color option from --color / --no-color flags.
  * Returns undefined for auto-detect, true for forced color, false for no color.
  */
-function resolveColorOption(values: { color?: boolean; 'no-color'?: boolean }): boolean | undefined {
-  if (values['no-color']) {
+function resolveColorOption(values: {
+  color?: boolean;
+  "no-color"?: boolean;
+}): boolean | undefined {
+  if (values["no-color"]) {
     return false;
   }
   if (values.color) {
@@ -260,15 +282,17 @@ function resolveColorOption(values: { color?: boolean; 'no-color'?: boolean }): 
   return undefined;
 }
 
-export function parseCliArgs(argv: string[] = process.argv.slice(2)): ParsedArgs {
+export function parseCliArgs(
+  argv: string[] = process.argv.slice(2),
+): ParsedArgs {
   // Count -v flags before parsing (parseArgs doesn't handle multiple -v well)
   let verboseCount = 0;
   const filteredArgv = argv.filter((arg) => {
-    if (arg === '-v' || arg === '--verbose') {
+    if (arg === "-v" || arg === "--verbose") {
       verboseCount++;
       return false;
     }
-    if (arg === '-vv') {
+    if (arg === "-vv") {
       verboseCount += 2;
       return false;
     }
@@ -278,79 +302,88 @@ export function parseCliArgs(argv: string[] = process.argv.slice(2)): ParsedArgs
   const { values, positionals } = parseArgs({
     args: filteredArgv,
     options: {
-      skill: { type: 'string' },
-      config: { type: 'string' },
-      model: { type: 'string', short: 'm' },
-      json: { type: 'boolean', default: false },
-      output: { type: 'string', short: 'o' },
-      'fail-on': { type: 'string' },
-      'report-on': { type: 'string' },
-      'min-confidence': { type: 'string' },
-      fix: { type: 'boolean', default: false },
-      force: { type: 'boolean', short: 'f', default: false },
-      list: { type: 'boolean', short: 'l', default: false },
-      remote: { type: 'string' },
-      offline: { type: 'boolean', default: false },
-      'fail-fast': { type: 'boolean', short: 'x', default: false },
-      parallel: { type: 'string' },
-      git: { type: 'boolean', default: false },
-      staged: { type: 'boolean', default: false },
-      log: { type: 'boolean', default: false },
-      help: { type: 'boolean', short: 'h', default: false },
-      version: { type: 'boolean', short: 'V', default: false },
-      quiet: { type: 'boolean', default: false },
-      debug: { type: 'boolean', default: false },
-      color: { type: 'boolean' },
-      'no-color': { type: 'boolean' },
+      skill: { type: "string" },
+      config: { type: "string" },
+      model: { type: "string", short: "m" },
+      json: { type: "boolean", default: false },
+      output: { type: "string", short: "o" },
+      "fail-on": { type: "string" },
+      "report-on": { type: "string" },
+      "min-confidence": { type: "string" },
+      fix: { type: "boolean", default: false },
+      force: { type: "boolean", short: "f", default: false },
+      list: { type: "boolean", short: "l", default: false },
+      remote: { type: "string" },
+      offline: { type: "boolean", default: false },
+      "fail-fast": { type: "boolean", short: "x", default: false },
+      parallel: { type: "string" },
+      git: { type: "boolean", default: false },
+      staged: { type: "boolean", default: false },
+      log: { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
+      version: { type: "boolean", short: "V", default: false },
+      quiet: { type: "boolean", default: false },
+      debug: { type: "boolean", default: false },
+      color: { type: "boolean" },
+      "no-color": { type: "boolean" },
       // setup-app options
-      org: { type: 'string' },
-      port: { type: 'string' },
-      timeout: { type: 'string' },
-      name: { type: 'string' },
-      open: { type: 'boolean', default: true },
-      'no-open': { type: 'boolean' },
+      org: { type: "string" },
+      port: { type: "string" },
+      timeout: { type: "string" },
+      name: { type: "string" },
+      open: { type: "boolean", default: true },
+      "no-open": { type: "boolean" },
     },
     allowPositionals: true,
   });
 
   if (values.version) {
     return {
-      command: 'version',
+      command: "version",
       options: CLIOptionsSchema.parse({}),
     };
   }
 
   if (values.help) {
     return {
-      command: 'help',
+      command: "help",
       options: CLIOptionsSchema.parse({ help: true }),
     };
   }
 
   // Filter out known commands from positionals
-  const commands = ['run', 'help', 'init', 'add', 'version', 'setup-app', 'sync', 'logs'];
+  const commands = [
+    "run",
+    "help",
+    "init",
+    "add",
+    "version",
+    "setup-app",
+    "sync",
+    "logs",
+  ];
   const targets = positionals.filter((p) => !commands.includes(p));
 
   // Handle explicit help command
-  if (positionals.includes('help')) {
+  if (positionals.includes("help")) {
     return {
-      command: 'help',
+      command: "help",
       options: CLIOptionsSchema.parse({ help: true }),
     };
   }
 
   // Handle explicit version command
-  if (positionals.includes('version')) {
+  if (positionals.includes("version")) {
     return {
-      command: 'version',
+      command: "version",
       options: CLIOptionsSchema.parse({}),
     };
   }
 
   // Handle init command
-  if (positionals.includes('init')) {
+  if (positionals.includes("init")) {
     return {
-      command: 'init',
+      command: "init",
       options: CLIOptionsSchema.parse({
         force: values.force,
         quiet: values.quiet,
@@ -360,13 +393,13 @@ export function parseCliArgs(argv: string[] = process.argv.slice(2)): ParsedArgs
   }
 
   // Handle add command
-  if (positionals.includes('add')) {
+  if (positionals.includes("add")) {
     // First positional after 'add' is the skill name
-    const addIndex = positionals.indexOf('add');
+    const addIndex = positionals.indexOf("add");
     const skillArg = positionals[addIndex + 1];
 
     return {
-      command: 'add',
+      command: "add",
       options: CLIOptionsSchema.parse({
         skill: values.skill ?? skillArg,
         list: values.list,
@@ -379,13 +412,13 @@ export function parseCliArgs(argv: string[] = process.argv.slice(2)): ParsedArgs
   }
 
   // Handle sync command
-  if (positionals.includes('sync')) {
+  if (positionals.includes("sync")) {
     // First positional after 'sync' is the remote to sync, --remote flag takes precedence
-    const syncIndex = positionals.indexOf('sync');
+    const syncIndex = positionals.indexOf("sync");
     const remoteArg = values.remote ?? positionals[syncIndex + 1];
 
     return {
-      command: 'sync',
+      command: "sync",
       options: CLIOptionsSchema.parse({
         remote: remoteArg,
         quiet: values.quiet,
@@ -395,19 +428,21 @@ export function parseCliArgs(argv: string[] = process.argv.slice(2)): ParsedArgs
   }
 
   // Handle setup-app command
-  if (positionals.includes('setup-app')) {
+  if (positionals.includes("setup-app")) {
     const port = values.port ? parseInt(values.port as string, 10) : 3000;
     if (Number.isNaN(port)) {
       console.error(`Invalid --port value: ${values.port}`);
       process.exit(1);
     }
-    const timeout = values.timeout ? parseInt(values.timeout as string, 10) : 300;
+    const timeout = values.timeout
+      ? parseInt(values.timeout as string, 10)
+      : 300;
     if (Number.isNaN(timeout)) {
       console.error(`Invalid --timeout value: ${values.timeout}`);
       process.exit(1);
     }
     return {
-      command: 'setup-app',
+      command: "setup-app",
       options: CLIOptionsSchema.parse({
         quiet: values.quiet,
         color: resolveColorOption(values),
@@ -417,14 +452,14 @@ export function parseCliArgs(argv: string[] = process.argv.slice(2)): ParsedArgs
         port,
         timeout,
         name: values.name as string | undefined,
-        open: !values['no-open'],
+        open: !values["no-open"],
       },
     };
   }
 
   // Handle logs command group
-  if (positionals.includes('logs')) {
-    const logsIndex = positionals.indexOf('logs');
+  if (positionals.includes("logs")) {
+    const logsIndex = positionals.indexOf("logs");
     const subArgs = positionals.slice(logsIndex + 1);
     const subcommandArg = subArgs[0];
 
@@ -432,26 +467,32 @@ export function parseCliArgs(argv: string[] = process.argv.slice(2)): ParsedArgs
 
     // Determine subcommand: explicit keyword, or infer 'show' if arg is not a known subcommand
     let subcommand: LogsSubcommand;
-    if (subcommandArg === 'list' || subcommandArg === 'show' || subcommandArg === 'gc') {
+    if (
+      subcommandArg === "list" ||
+      subcommandArg === "show" ||
+      subcommandArg === "gc"
+    ) {
       subcommand = subcommandArg;
     } else if (subcommandArg) {
       // Non-keyword arg (file path, run ID, etc.) — infer 'show'
-      subcommand = 'show';
+      subcommand = "show";
       files = subArgs;
     } else {
-      subcommand = 'list';
+      subcommand = "list";
     }
 
-    if (subcommand === 'show' && files.length === 0) {
+    if (subcommand === "show" && files.length === 0) {
       files = subArgs.slice(1);
     }
 
     return {
-      command: 'logs',
+      command: "logs",
       options: CLIOptionsSchema.parse({
         json: values.json,
-        reportOn: values['report-on'] as SeverityThreshold | undefined,
-        minConfidence: values['min-confidence'] as ConfidenceThreshold | undefined,
+        reportOn: values["report-on"] as SeverityThreshold | undefined,
+        minConfidence: values["min-confidence"] as
+          | ConfidenceThreshold
+          | undefined,
         quiet: values.quiet,
         verbose: verboseCount,
         debug: values.debug,
@@ -472,9 +513,9 @@ export function parseCliArgs(argv: string[] = process.argv.slice(2)): ParsedArgs
     model: values.model,
     json: values.json,
     output: values.output,
-    failOn: values['fail-on'] as SeverityThreshold | undefined,
-    reportOn: values['report-on'] as SeverityThreshold | undefined,
-    minConfidence: values['min-confidence'] as ConfidenceThreshold | undefined,
+    failOn: values["fail-on"] as SeverityThreshold | undefined,
+    reportOn: values["report-on"] as SeverityThreshold | undefined,
+    minConfidence: values["min-confidence"] as ConfidenceThreshold | undefined,
     fix: values.fix,
     force: values.force,
     parallel: values.parallel ? parseInt(values.parallel, 10) : undefined,
@@ -482,7 +523,7 @@ export function parseCliArgs(argv: string[] = process.argv.slice(2)): ParsedArgs
     staged: values.staged,
     log: values.log,
     offline: values.offline,
-    failFast: values['fail-fast'],
+    failFast: values["fail-fast"],
     help: values.help,
     quiet: values.quiet,
     verbose: verboseCount,
@@ -492,14 +533,16 @@ export function parseCliArgs(argv: string[] = process.argv.slice(2)): ParsedArgs
 
   const result = CLIOptionsSchema.safeParse(rawOptions);
   if (!result.success) {
-    const issues = result.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`);
-    console.error('Invalid options:');
-    console.error(issues.join('\n'));
+    const issues = result.error.issues.map(
+      (i) => `  - ${i.path.join(".")}: ${i.message}`,
+    );
+    console.error("Invalid options:");
+    console.error(issues.join("\n"));
     process.exit(1);
   }
 
   return {
-    command: 'run',
+    command: "run",
     options: result.data,
   };
 }

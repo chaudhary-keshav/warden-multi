@@ -8,6 +8,26 @@ reportOn = "medium"
 # Exclude build output from all skills
 ignorePaths = ["dist/**", "evals/**"]
 
+# MCP server configurations
+[mcp.codetrellis]
+command = "codetrellis"
+args = ["mcp"]
+
+[pipeline]
+mode = "sequential"
+skillOrder = [
+  "find-warden-bugs",
+  "architecture-review",
+  "testing-guidelines",
+  "code-simplifier",
+  "codetrellis-aware-review",
+]
+
+[pipeline.compaction]
+enabled = true
+maxTokens = 500
+includeFindings = true
+
 [[skills]]
 name = "find-warden-bugs"
 paths = ["src/**/*.ts"]
@@ -15,11 +35,38 @@ ignorePaths = ["src/**/*.test.ts"]
 
 [[skills.triggers]]
 type = "pull_request"
-actions = ["opened", "synchronize", "reopened"]
+actions = ["opened"]
+
+[[skills]]
+name = "architecture-review"
+paths = ["src/**/*.ts"]
+ignorePaths = ["src/**/*.test.ts"]
+
+[[skills.triggers]]
+type = "pull_request"
+actions = ["opened"]
+
+[[skills]]
+name = "testing-guidelines"
+paths = ["src/**/*.test.ts"]
+
+[[skills.triggers]]
+type = "pull_request"
+actions = ["opened"]
 
 [[skills]]
 name = "code-simplifier"
 remote = "getsentry/sentry-skills"
 
 [[skills.triggers]]
-type = "local"
+type = "pull_request"
+actions = ["opened"]
+
+[[skills]]
+name = "codetrellis-aware-review"
+paths = ["src/**/*.ts"]
+ignorePaths = ["src/**/*.test.ts"]
+
+[[skills.triggers]]
+type = "pull_request"
+actions = ["opened"]

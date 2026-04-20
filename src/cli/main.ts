@@ -25,7 +25,7 @@ import type { SkillReport, ConfidenceThreshold } from "../types/index.js";
 import { filterFindings } from "../types/index.js";
 import { DEFAULT_CONCURRENCY, getProviderApiKey } from "../utils/index.js";
 import { createProvider } from "../providers/index.js";
-import type { ProviderName } from "../providers/types.js";
+import type { ProviderName, McpServerConfig } from "../providers/types.js";
 import {
   parseCliArgs,
   showHelp,
@@ -375,7 +375,7 @@ async function runSkills(
   const startTime = Date.now();
 
   // Resolve provider from config or default
-  const providerName: ProviderName = (options as any).provider ?? "openai";
+  const providerName: ProviderName = options.provider ?? "openai";
   const provider = createProvider(providerName);
 
   // Get API key for the active provider
@@ -509,6 +509,7 @@ async function runSkills(
     maxContextFiles: config?.defaults?.chunking?.maxContextFiles,
     auxiliaryMaxRetries: config?.defaults?.auxiliaryMaxRetries,
     provider,
+    mcpServers: config?.mcp as Record<string, McpServerConfig> | undefined,
   };
   const tasks: SkillTaskOptions[] = skillsToRun.map(
     ({ skill, remote, filters }) => ({
@@ -886,6 +887,7 @@ async function runConfigMode(
       maxContextFiles: config.defaults?.chunking?.maxContextFiles,
       auxiliaryMaxRetries: config.defaults?.auxiliaryMaxRetries,
       provider,
+      mcpServers: config.mcp as Record<string, McpServerConfig> | undefined,
     },
   }));
 

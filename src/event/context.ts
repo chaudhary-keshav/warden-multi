@@ -1,12 +1,12 @@
-import type { Octokit } from '@octokit/rest';
-import { z } from 'zod';
+import type { Octokit } from "@octokit/rest";
+import { z } from "zod";
 import {
   EventContextSchema,
   type EventContext,
   type FileChange,
   type PullRequestContext,
   type RepositoryContext,
-} from '../types/index.js';
+} from "../types/index.js";
 
 // GitHub Action event payload schemas
 const GitHubUserSchema = z.object({
@@ -44,7 +44,7 @@ const GitHubEventPayloadSchema = z.object({
 export class EventContextError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
-    this.name = 'EventContextError';
+    this.name = "EventContextError";
   }
 }
 
@@ -52,11 +52,13 @@ export async function buildEventContext(
   eventName: string,
   eventPayload: unknown,
   repoPath: string,
-  octokit: Octokit
+  octokit: Octokit,
 ): Promise<EventContext> {
   const payloadResult = GitHubEventPayloadSchema.safeParse(eventPayload);
   if (!payloadResult.success) {
-    throw new EventContextError('Invalid event payload', { cause: payloadResult.error });
+    throw new EventContextError("Invalid event payload", {
+      cause: payloadResult.error,
+    });
   }
 
   const payload = payloadResult.data;
@@ -70,7 +72,10 @@ export async function buildEventContext(
 
   let pullRequest: PullRequestContext | undefined;
 
-  if ((eventName === 'pull_request' || eventName === 'pull_request_target') && payload.pull_request) {
+  if (
+    (eventName === "pull_request" || eventName === "pull_request_target") &&
+    payload.pull_request
+  ) {
     const pr = payload.pull_request;
 
     // Fetch files changed in the PR
@@ -78,7 +83,7 @@ export async function buildEventContext(
       octokit,
       repository.owner,
       repository.name,
-      pr.number
+      pr.number,
     );
 
     pullRequest = {
@@ -95,7 +100,7 @@ export async function buildEventContext(
   }
 
   const context: EventContext = {
-    eventType: eventName as EventContext['eventType'],
+    eventType: eventName as EventContext["eventType"],
     action: payload.action,
     repository,
     pullRequest,
@@ -105,7 +110,9 @@ export async function buildEventContext(
   // Validate the final context
   const result = EventContextSchema.safeParse(context);
   if (!result.success) {
-    throw new EventContextError('Failed to build valid event context', { cause: result.error });
+    throw new EventContextError("Failed to build valid event context", {
+      cause: result.error,
+    });
   }
 
   return result.data;
@@ -115,7 +122,7 @@ async function fetchPullRequestFiles(
   octokit: Octokit,
   owner: string,
   repo: string,
-  pullNumber: number
+  pullNumber: number,
 ): Promise<FileChange[]> {
   const files = await octokit.paginate(octokit.pulls.listFiles, {
     owner,
@@ -126,7 +133,7 @@ async function fetchPullRequestFiles(
 
   return files.map((file) => ({
     filename: file.filename,
-    status: file.status as FileChange['status'],
+    status: file.status as FileChange["status"],
     additions: file.additions,
     deletions: file.deletions,
     patch: file.patch,

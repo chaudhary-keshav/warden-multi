@@ -4,40 +4,72 @@
  * Handles pull_request and push events.
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import type { Octokit } from '@octokit/rest';
-import { Sentry, logger, emitStaleResolutionMetric, setGlobalAttributes, emitRunMetric } from '../../sentry.js';
-import { loadWardenConfig, resolveSkillConfigs, ConfigLoadError } from '../../config/loader.js';
-import type { ResolvedTrigger } from '../../config/loader.js';
-import type { WardenConfig } from '../../config/schema.js';
-import { buildEventContext } from '../../event/context.js';
-import { matchTrigger, shouldFail, countFindingsAtOrAbove } from '../../triggers/matcher.js';
-import { fetchExistingComments } from '../../output/dedup.js';
-import type { ExistingComment } from '../../output/dedup.js';
-import { buildAnalyzedScope, findStaleComments, resolveStaleComments } from '../../output/stale.js';
-import { filterFindings } from '../../types/index.js';
-import type { EventContext, SkillReport, Finding } from '../../types/index.js';
-import { runPool, Semaphore } from '../../utils/index.js';
-import { evaluateFixAttempts, postThreadReply } from '../fix-evaluation/index.js';
-import type { FixEvaluation } from '../fix-evaluation/index.js';
-import { logAction, warnAction } from '../../cli/output/tty.js';
-import { formatCost, formatTokens, formatDuration } from '../../cli/output/formatters.js';
-import { findBotReviewState } from '../review-state.js';
-import type { BotReviewInfo } from '../review-state.js';
-import type { ActionInputs } from '../inputs.js';
-import { executeTrigger } from '../triggers/executor.js';
-import type { TriggerResult } from '../triggers/executor.js';
-import { postTriggerReview } from '../review/poster.js';
-import { shouldResolveStaleComments } from '../review/coordination.js';
-import { createProvider } from '../../providers/index.js';
-import type { ProviderName } from '../../providers/types.js';
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import type { Octokit } from "@octokit/rest";
+import {
+  Sentry,
+  logger,
+  emitStaleResolutionMetric,
+  setGlobalAttributes,
+  emitRunMetric,
+} from "../../sentry.js";
+import {
+  loadWardenConfig,
+  resolveSkillConfigs,
+  ConfigLoadError,
+} from "../../config/loader.js";
+import type { ResolvedTrigger } from "../../config/loader.js";
+import type { WardenConfig } from "../../config/schema.js";
+import { buildEventContext } from "../../event/context.js";
+import { discoverAllSkills } from "../../skills/loader.js";
+import type { McpServerConfig } from "../../providers/types.js";
+import {
+  matchTrigger,
+  shouldFail,
+  countFindingsAtOrAbove,
+} from "../../triggers/matcher.js";
+import { fetchExistingComments } from "../../output/dedup.js";
+import type { ExistingComment } from "../../output/dedup.js";
+import {
+  buildAnalyzedScope,
+  findStaleComments,
+  resolveStaleComments,
+} from "../../output/stale.js";
+import { filterFindings } from "../../types/index.js";
+import type { EventContext, SkillReport, Finding } from "../../types/index.js";
+import { runPool, Semaphore } from "../../utils/index.js";
+import {
+  evaluateFixAttempts,
+  postThreadReply,
+} from "../fix-evaluation/index.js";
+import type { FixEvaluation } from "../fix-evaluation/index.js";
+import { logAction, warnAction } from "../../cli/output/tty.js";
+import {
+  formatCost,
+  formatTokens,
+  formatDuration,
+} from "../../cli/output/formatters.js";
+import { findBotReviewState } from "../review-state.js";
+import type { BotReviewInfo } from "../review-state.js";
+import type { ActionInputs } from "../inputs.js";
+import { executeTrigger } from "../triggers/executor.js";
+import type {
+  TriggerResult,
+  TriggerExecutorDeps,
+} from "../triggers/executor.js";
+import { executeSequentialPipeline } from "../../pipeline/sequential.js";
+import type { PipelineState } from "../../pipeline/types.js";
+import { postTriggerReview } from "../review/poster.js";
+import { shouldResolveStaleComments } from "../review/coordination.js";
+import { createProvider } from "../../providers/index.js";
+import type { ProviderName } from "../../providers/types.js";
 import {
   createCoreCheck,
   updateCoreCheck,
   buildCoreSummaryData,
   determineCoreConclusion,
-} from '../checks/manager.js';
+} from "../checks/manager.js";
 import {
   setOutput,
   setFailed,
@@ -50,7 +82,7 @@ import {
   setWorkflowOutputs,
   getAuthenticatedBotLogin,
   writeFindingsOutput,
-} from './base.js';
+} from "./base.js";
 
 // -----------------------------------------------------------------------------
 // Phase Result Types
@@ -79,11 +111,16 @@ interface ReviewPhaseResult {
 // Fix Evaluation Logging
 // -----------------------------------------------------------------------------
 
-function logFixEvaluation(ev: FixEvaluation, index: number, total: number): void {
+function logFixEvaluation(
+  ev: FixEvaluation,
+  index: number,
+  total: number,
+): void {
   const totalTokens = ev.usage.inputTokens + ev.usage.outputTokens;
-  const costStr = ev.usage.costUSD > 0 ? `, ${formatCost(ev.usage.costUSD)}` : '';
-  const idPrefix = ev.findingId ? `${ev.findingId} ` : '';
-  const verdict = ev.usedFallback ? 'eval_error' : ev.verdict;
+  const costStr =
+    ev.usage.costUSD > 0 ? `, ${formatCost(ev.usage.costUSD)}` : "";
+  const idPrefix = ev.findingId ? `${ev.findingId} ` : "";
+  const verdict = ev.usedFallback ? "eval_error" : ev.verdict;
 
   const line = `  [${index + 1}/${total}] ${idPrefix}${ev.path}:${ev.line} → ${verdict} (${formatDuration(ev.durationMs)}, ${formatTokens(totalTokens)} tok${costStr})`;
 
@@ -93,7 +130,7 @@ function logFixEvaluation(ev: FixEvaluation, index: number, total: number): void
     logAction(line);
   }
 
-  if (ev.verdict === 'attempted_failed' && ev.reasoning) {
+  if (ev.verdict === "attempted_failed" && ev.reasoning) {
     logAction(`        reason: "${ev.reasoning}"`);
   }
 }
@@ -110,30 +147,39 @@ async function initializeWorkflow(
   inputs: ActionInputs,
   eventName: string,
   eventPath: string,
-  repoPath: string
+  repoPath: string,
 ): Promise<InitResult | null> {
   let eventPayload: unknown;
   try {
-    eventPayload = JSON.parse(readFileSync(eventPath, 'utf-8'));
+    eventPayload = JSON.parse(readFileSync(eventPath, "utf-8"));
   } catch (error) {
-    Sentry.captureException(error, { tags: { operation: 'read_event_payload' } });
+    Sentry.captureException(error, {
+      tags: { operation: "read_event_payload" },
+    });
     setFailed(`Failed to read event payload: ${error}`);
   }
 
-  logGroup('Building event context');
+  logGroup("Building event context");
   console.log(`Event: ${eventName}`);
   console.log(`Workspace: ${repoPath}`);
   logGroupEnd();
 
   let context: EventContext;
   try {
-    context = await buildEventContext(eventName, eventPayload, repoPath, octokit);
+    context = await buildEventContext(
+      eventName,
+      eventPayload,
+      repoPath,
+      octokit,
+    );
   } catch (error) {
-    Sentry.captureException(error, { tags: { operation: 'build_event_context' } });
+    Sentry.captureException(error, {
+      tags: { operation: "build_event_context" },
+    });
     setFailed(`Failed to build event context: ${error}`);
   }
 
-  logGroup('Loading configuration');
+  logGroup("Loading configuration");
   console.log(`Config path: ${inputs.configPath}`);
   logGroupEnd();
 
@@ -142,8 +188,11 @@ async function initializeWorkflow(
   try {
     config = loadWardenConfig(dirname(configFullPath));
   } catch (error) {
-    if (error instanceof ConfigLoadError && error.message.includes('not found')) {
-      console.log('::warning::No warden.toml found. Skipping analysis.');
+    if (
+      error instanceof ConfigLoadError &&
+      error.message.includes("not found")
+    ) {
+      console.log("::warning::No warden.toml found. Skipping analysis.");
       return null;
     }
     throw error;
@@ -151,16 +200,48 @@ async function initializeWorkflow(
 
   // Resolve skills into triggers and match
   const resolvedTriggers = resolveSkillConfigs(config);
-  const matchedTriggers = resolvedTriggers.filter((t) => matchTrigger(t, context, 'github'));
+
+  // Auto-discover local skills not listed in warden.toml
+  const configuredNames = new Set(resolvedTriggers.map((t) => t.name));
+  try {
+    const discovered = await discoverAllSkills(repoPath);
+    for (const [name] of discovered) {
+      if (!configuredNames.has(name)) {
+        // Add as wildcard trigger so it participates in PR review
+        resolvedTriggers.push({
+          name,
+          skill: name,
+          type: "*",
+          filters: {
+            ignorePaths: config.defaults?.ignorePaths,
+          },
+          failOn: config.defaults?.failOn,
+          reportOn: config.defaults?.reportOn,
+          maxFindings: config.defaults?.maxFindings,
+          reportOnSuccess: config.defaults?.reportOnSuccess,
+          requestChanges: config.defaults?.requestChanges,
+          failCheck: config.defaults?.failCheck,
+          minConfidence: config.defaults?.minConfidence,
+        });
+        console.log(`Auto-discovered local skill: ${name}`);
+      }
+    }
+  } catch (error) {
+    warnAction(`Failed to auto-discover local skills: ${error}`);
+  }
+
+  const matchedTriggers = resolvedTriggers.filter((t) =>
+    matchTrigger(t, context, "github"),
+  );
 
   if (matchedTriggers.length > 0) {
-    logGroup('Matched triggers');
+    logGroup("Matched triggers");
     for (const trigger of matchedTriggers) {
       console.log(`- ${trigger.name}: ${trigger.skill}`);
     }
     logGroupEnd();
   } else {
-    console.log('No triggers matched for this event');
+    console.log("No triggers matched for this event");
   }
 
   return { context, config, matchedTriggers };
@@ -172,7 +253,7 @@ async function initializeWorkflow(
  */
 async function fetchPreviousReviewInfo(
   octokit: Octokit,
-  context: EventContext
+  context: EventContext,
 ): Promise<BotReviewInfo | null> {
   if (!context.pullRequest) {
     return null;
@@ -183,7 +264,7 @@ async function fetchPreviousReviewInfo(
 
     if (!botLogin) {
       logAction(
-        'Skipping dismiss flow: cannot identify bot (using PAT or GITHUB_TOKEN instead of GitHub App)'
+        "Skipping dismiss flow: cannot identify bot (using PAT or GITHUB_TOKEN instead of GitHub App)",
       );
       return null;
     }
@@ -209,7 +290,7 @@ async function fetchPreviousReviewInfo(
  */
 async function setupGitHubState(
   octokit: Octokit,
-  context: EventContext
+  context: EventContext,
 ): Promise<GitHubSetupResult> {
   if (!context.pullRequest) {
     return { previousReviewInfo: null };
@@ -228,7 +309,9 @@ async function setupGitHubState(
     coreCheckId = coreCheck.checkRunId;
     logAction(`Created core check: ${coreCheck.url}`);
   } catch (error) {
-    Sentry.captureException(error, { tags: { operation: 'create_core_check' } });
+    Sentry.captureException(error, {
+      tags: { operation: "create_core_check" },
+    });
     warnAction(`Failed to create core check: ${error}`);
   }
 
@@ -242,27 +325,28 @@ async function setupGitHubState(
 }
 
 /**
- * Run all matched triggers in parallel batches.
+ * Run all matched triggers, either in parallel or sequential mode.
  */
 async function executeAllTriggers(
   matchedTriggers: ResolvedTrigger[],
   octokit: Octokit,
   context: EventContext,
   config: WardenConfig,
-  inputs: ActionInputs
+  inputs: ActionInputs,
 ): Promise<TriggerResult[]> {
   const concurrency = config.runner?.concurrency ?? inputs.parallel;
+  const pipelineMode = config.pipeline?.mode ?? "parallel";
 
   // Resolve provider from inputs or config
   const providerName: ProviderName =
     (inputs.provider as ProviderName) ||
     (config.defaults?.provider?.name as ProviderName) ||
-    'openai';
+    "openai";
   const provider = createProvider(providerName);
-  const isClaudeProvider = providerName === 'claude';
+  const isClaudeProvider = providerName === "claude";
 
   // Only look for Claude Code CLI when using Claude provider
-  let claudePath = '';
+  let claudePath = "";
   if (isClaudeProvider) {
     claudePath = await findClaudeCodeExecutable();
   }
@@ -271,24 +355,40 @@ async function executeAllTriggers(
   // All triggers launch immediately; the semaphore limits concurrent file analyses.
   const semaphore = new Semaphore(concurrency);
 
-  return runPool(
-    matchedTriggers,
-    matchedTriggers.length,
-    (trigger) =>
-      executeTrigger(trigger, {
-        octokit,
-        context,
-        config,
-        anthropicApiKey: inputs.anthropicApiKey,
-        claudePath,
-        provider,
-        globalFailOn: inputs.failOn,
-        globalReportOn: inputs.reportOn,
-        globalMaxFindings: inputs.maxFindings,
-        globalRequestChanges: inputs.requestChanges,
-        globalFailCheck: inputs.failCheck,
-        semaphore,
-      }),
+  const buildDeps = (
+    trigger: ResolvedTrigger,
+    pipelineState?: PipelineState,
+  ): TriggerExecutorDeps => ({
+    octokit,
+    context,
+    config,
+    anthropicApiKey: inputs.anthropicApiKey,
+    claudePath,
+    provider,
+    globalFailOn: inputs.failOn,
+    globalReportOn: inputs.reportOn,
+    globalMaxFindings: inputs.maxFindings,
+    globalRequestChanges: inputs.requestChanges,
+    globalFailCheck: inputs.failCheck,
+    semaphore,
+    mcpServers: config.mcp as Record<string, McpServerConfig> | undefined,
+    pipelineState,
+  });
+
+  if (pipelineMode === "sequential") {
+    // Sequential mode with inter-skill context compaction
+    return executeSequentialPipeline(
+      matchedTriggers,
+      context,
+      config,
+      provider,
+      buildDeps,
+    );
+  }
+
+  // Parallel mode (default): run all triggers concurrently
+  return runPool(matchedTriggers, matchedTriggers.length, (trigger) =>
+    executeTrigger(trigger, buildDeps(trigger)),
   );
 }
 
@@ -300,7 +400,7 @@ async function postReviewsAndTrackFailures(
   context: EventContext,
   results: TriggerResult[],
   inputs: ActionInputs,
-  auxiliaryMaxRetries?: number
+  auxiliaryMaxRetries?: number,
 ): Promise<ReviewPhaseResult> {
   // Fetch existing comments for deduplication (only for PRs)
   // Keep original list separate for stale detection (modified list includes newly posted comments)
@@ -312,19 +412,23 @@ async function postReviewsAndTrackFailures(
         octokit,
         context.repository.owner,
         context.repository.name,
-        context.pullRequest.number
+        context.pullRequest.number,
       );
       existingComments = [...fetchedComments];
       if (fetchedComments.length > 0) {
         const wardenCount = fetchedComments.filter((c) => c.isWarden).length;
         const externalCount = fetchedComments.length - wardenCount;
         logAction(
-          `Found ${fetchedComments.length} existing comments for deduplication (${wardenCount} Warden, ${externalCount} external)`
+          `Found ${fetchedComments.length} existing comments for deduplication (${wardenCount} Warden, ${externalCount} external)`,
         );
       }
     } catch (error) {
-      Sentry.captureException(error, { tags: { operation: 'fetch_existing_comments' } });
-      warnAction(`Failed to fetch existing comments for deduplication: ${error}`);
+      Sentry.captureException(error, {
+        tags: { operation: "fetch_existing_comments" },
+      });
+      warnAction(
+        `Failed to fetch existing comments for deduplication: ${error}`,
+      );
     }
   }
 
@@ -345,7 +449,7 @@ async function postReviewsAndTrackFailures(
           apiKey: inputs.anthropicApiKey,
           maxRetries: auxiliaryMaxRetries,
         },
-        { octokit, context }
+        { octokit, context },
       );
 
       // Add newly posted comments to existing comments for cross-trigger deduplication
@@ -354,16 +458,35 @@ async function postReviewsAndTrackFailures(
       // Check if we should fail based on this trigger's config
       // Filter by confidence first so low-confidence findings don't cause failure
       const failCheck = result.failCheck ?? false;
-      const reportForFail = { ...result.report, findings: filterFindings(result.report.findings, undefined, result.minConfidence) };
-      if (failCheck && result.failOn && shouldFail(reportForFail, result.failOn)) {
+      const reportForFail = {
+        ...result.report,
+        findings: filterFindings(
+          result.report.findings,
+          undefined,
+          result.minConfidence,
+        ),
+      };
+      if (
+        failCheck &&
+        result.failOn &&
+        shouldFail(reportForFail, result.failOn)
+      ) {
         shouldFailAction = true;
         const count = countFindingsAtOrAbove(reportForFail, result.failOn);
-        failureReasons.push(`${result.triggerName}: Found ${count} ${result.failOn}+ severity issues`);
+        failureReasons.push(
+          `${result.triggerName}: Found ${count} ${result.failOn}+ severity issues`,
+        );
       }
     }
   }
 
-  return { reports, fetchedComments, existingComments, shouldFailAction, failureReasons };
+  return {
+    reports,
+    fetchedComments,
+    existingComments,
+    shouldFailAction,
+    failureReasons,
+  };
 }
 
 /**
@@ -378,7 +501,7 @@ async function evaluateFixesAndResolveStale(
   allFindings: Finding[],
   canResolveStale: boolean,
   anthropicApiKey: string,
-  auxiliaryMaxRetries?: number
+  auxiliaryMaxRetries?: number,
 ): Promise<{
   allResolved: boolean;
   autoResolvedByFixEvaluation: number;
@@ -397,10 +520,14 @@ async function evaluateFixesAndResolveStale(
     anthropicApiKey
   ) {
     try {
-      logGroup('Fix evaluation');
-      const unresolvedCount = wardenComments.filter((c) => !c.isResolved && c.threadId).length;
+      logGroup("Fix evaluation");
+      const unresolvedCount = wardenComments.filter(
+        (c) => !c.isResolved && c.threadId,
+      ).length;
       if (unresolvedCount > 0) {
-        logAction(`Fix evaluation: evaluating ${unresolvedCount} unresolved comments`);
+        logAction(
+          `Fix evaluation: evaluating ${unresolvedCount} unresolved comments`,
+        );
       }
 
       const fixEvaluation = await evaluateFixAttempts(
@@ -414,17 +541,20 @@ async function evaluateFixesAndResolveStale(
         },
         allFindings,
         anthropicApiKey,
-        auxiliaryMaxRetries
+        auxiliaryMaxRetries,
       );
 
       // Log per-evaluation details
       fixEvaluation.evaluations.forEach((ev, i) =>
-        logFixEvaluation(ev, i, fixEvaluation.evaluations.length)
+        logFixEvaluation(ev, i, fixEvaluation.evaluations.length),
       );
 
       // Resolve successful fixes
       if (fixEvaluation.toResolve.length > 0) {
-        const { resolvedCount, resolvedIds } = await resolveStaleComments(octokit, fixEvaluation.toResolve);
+        const { resolvedCount, resolvedIds } = await resolveStaleComments(
+          octokit,
+          fixEvaluation.toResolve,
+        );
         if (resolvedCount > 0) {
           logAction(`Resolved ${resolvedCount} comments via fix evaluation`);
         }
@@ -437,16 +567,23 @@ async function evaluateFixesAndResolveStale(
         commentsEvaluatedByFixEval.add(reply.comment.id);
         if (reply.comment.threadId) {
           try {
-            await postThreadReply(octokit, reply.comment.threadId, reply.replyBody);
+            await postThreadReply(
+              octokit,
+              reply.comment.threadId,
+              reply.replyBody,
+            );
           } catch (error) {
-            Sentry.captureException(error, { tags: { operation: 'post_thread_reply' } });
+            Sentry.captureException(error, {
+              tags: { operation: "post_thread_reply" },
+            });
           }
         }
       }
 
       if (fixEvaluation.evaluated > 0) {
-        const totalTokens = fixEvaluation.usage.inputTokens + fixEvaluation.usage.outputTokens;
-        let usageStr = '';
+        const totalTokens =
+          fixEvaluation.usage.inputTokens + fixEvaluation.usage.outputTokens;
+        let usageStr = "";
         if (totalTokens > 0) {
           usageStr = `, ${formatTokens(totalTokens)} tok, ${formatCost(fixEvaluation.usage.costUSD)}`;
         }
@@ -454,12 +591,14 @@ async function evaluateFixesAndResolveStale(
           `Fix evaluation: ${fixEvaluation.toResolve.length} resolved, ` +
             `${fixEvaluation.toReply.length} need attention, ` +
             `${fixEvaluation.skipped} skipped` +
-            usageStr
+            usageStr,
         );
       }
       logGroupEnd();
     } catch (error) {
-      Sentry.captureException(error, { tags: { operation: 'evaluate_fix_attempts' } });
+      Sentry.captureException(error, {
+        tags: { operation: "evaluate_fix_attempts" },
+      });
       warnAction(`Failed to evaluate fix attempts: ${error}`);
       logGroupEnd();
     }
@@ -471,12 +610,21 @@ async function evaluateFixesAndResolveStale(
     try {
       const scope = buildAnalyzedScope(context.pullRequest.files);
       const commentsForStaleCheck = wardenComments.filter(
-        (c) => !commentsResolvedByFixEval.has(c.id) && !commentsEvaluatedByFixEval.has(c.id)
+        (c) =>
+          !commentsResolvedByFixEval.has(c.id) &&
+          !commentsEvaluatedByFixEval.has(c.id),
       );
-      const staleComments = findStaleComments(commentsForStaleCheck, allFindings, scope);
+      const staleComments = findStaleComments(
+        commentsForStaleCheck,
+        allFindings,
+        scope,
+      );
 
       if (staleComments.length > 0) {
-        const { resolvedCount, resolvedIds } = await resolveStaleComments(octokit, staleComments);
+        const { resolvedCount, resolvedIds } = await resolveStaleComments(
+          octokit,
+          staleComments,
+        );
         if (resolvedCount > 0) {
           logAction(`Resolved ${resolvedCount} stale Warden comments`);
           emitStaleResolutionMetric(resolvedCount);
@@ -496,17 +644,20 @@ async function evaluateFixesAndResolveStale(
         resolvedIds.forEach((id) => commentsResolvedByStale.add(id));
       }
     } catch (error) {
-      Sentry.captureException(error, { tags: { operation: 'resolve_stale_comments' } });
+      Sentry.captureException(error, {
+        tags: { operation: "resolve_stale_comments" },
+      });
       warnAction(`Failed to resolve stale comments: ${error}`);
     }
   } else if (!canResolveStale && wardenComments.length > 0) {
-    logAction('Skipping stale comment resolution due to trigger failures');
+    logAction("Skipping stale comment resolution due to trigger failures");
   }
 
   // Determine if all unresolved Warden comments were resolved during this run
   const unresolvedBefore = wardenComments.filter((c) => !c.isResolved);
   const allResolved = unresolvedBefore.every(
-    (c) => commentsResolvedByFixEval.has(c.id) || commentsResolvedByStale.has(c.id)
+    (c) =>
+      commentsResolvedByFixEval.has(c.id) || commentsResolvedByStale.has(c.id),
   );
 
   return {
@@ -528,20 +679,29 @@ async function finalizeWorkflow(
   reports: SkillReport[],
   shouldFailAction: boolean,
   failureReasons: string[],
-  canResolveStale: boolean
+  canResolveStale: boolean,
 ): Promise<void> {
   // Dismiss previous CHANGES_REQUESTED if all blocking issues are resolved.
   // Requires: all triggers succeeded, current run would not request changes,
   // and at least one trigger has an active failOn (prevents accidental dismiss when config changes).
   const wouldRequestChanges = results.some((r) => {
-    if (!r.failOn || r.failOn === 'off' || !(r.requestChanges ?? false) || !r.report) return false;
-    const filtered = { ...r.report, findings: filterFindings(r.report.findings, undefined, r.minConfidence) };
+    if (
+      !r.failOn ||
+      r.failOn === "off" ||
+      !(r.requestChanges ?? false) ||
+      !r.report
+    )
+      return false;
+    const filtered = {
+      ...r.report,
+      findings: filterFindings(r.report.findings, undefined, r.minConfidence),
+    };
     return shouldFail(filtered, r.failOn);
   });
-  const hasActiveFailOn = results.some((r) => r.failOn && r.failOn !== 'off');
+  const hasActiveFailOn = results.some((r) => r.failOn && r.failOn !== "off");
   if (
     context.pullRequest &&
-    previousReviewInfo?.state === 'CHANGES_REQUESTED' &&
+    previousReviewInfo?.state === "CHANGES_REQUESTED" &&
     canResolveStale &&
     !wouldRequestChanges &&
     hasActiveFailOn
@@ -552,11 +712,11 @@ async function finalizeWorkflow(
         repo: context.repository.name,
         pull_number: context.pullRequest.number,
         review_id: previousReviewInfo.reviewId,
-        message: 'All previously reported issues have been resolved.',
+        message: "All previously reported issues have been resolved.",
       });
-      logAction('Dismissed previous CHANGES_REQUESTED review');
+      logAction("Dismissed previous CHANGES_REQUESTED review");
     } catch (error) {
-      Sentry.captureException(error, { tags: { operation: 'dismiss_review' } });
+      Sentry.captureException(error, { tags: { operation: "dismiss_review" } });
       warnAction(`Failed to dismiss previous review: ${error}`);
     }
   }
@@ -577,20 +737,25 @@ async function finalizeWorkflow(
   if (coreCheckId && context.pullRequest) {
     try {
       const summaryData = buildCoreSummaryData(results, reports);
-      const coreConclusion = determineCoreConclusion(shouldFailAction, outputs.findingsCount);
+      const coreConclusion = determineCoreConclusion(
+        shouldFailAction,
+        outputs.findingsCount,
+      );
 
       await updateCoreCheck(octokit, coreCheckId, summaryData, coreConclusion, {
         owner: context.repository.owner,
         repo: context.repository.name,
       });
     } catch (error) {
-      Sentry.captureException(error, { tags: { operation: 'update_core_check' } });
+      Sentry.captureException(error, {
+        tags: { operation: "update_core_check" },
+      });
       warnAction(`Failed to update core check: ${error}`);
     }
   }
 
   if (shouldFailAction) {
-    setFailed(failureReasons.join('; '));
+    setFailed(failureReasons.join("; "));
   }
 
   logAction(`Analysis complete: ${outputs.findingsCount} total findings`);
@@ -607,7 +772,7 @@ async function cleanupOrphanedComments(
   octokit: Octokit,
   context: EventContext,
   anthropicApiKey: string,
-  auxiliaryMaxRetries?: number
+  auxiliaryMaxRetries?: number,
 ): Promise<void> {
   if (!context.pullRequest) {
     return;
@@ -619,7 +784,7 @@ async function cleanupOrphanedComments(
       octokit,
       context.repository.owner,
       context.repository.name,
-      context.pullRequest.number
+      context.pullRequest.number,
     );
   } catch (error) {
     warnAction(`Failed to fetch existing comments for cleanup: ${error}`);
@@ -631,29 +796,43 @@ async function cleanupOrphanedComments(
     return;
   }
 
-  logAction(`No triggers matched, but found ${wardenComments.length} existing Warden comments. Running cleanup.`);
+  logAction(
+    `No triggers matched, but found ${wardenComments.length} existing Warden comments. Running cleanup.`,
+  );
 
   const { allResolved, autoResolvedByFixEvaluation, autoResolvedByStaleCheck } =
     await evaluateFixesAndResolveStale(
-    octokit, context, existingComments, [], true, anthropicApiKey, auxiliaryMaxRetries
+      octokit,
+      context,
+      existingComments,
+      [],
+      true,
+      anthropicApiKey,
+      auxiliaryMaxRetries,
     );
   const activeSpan = Sentry.getActiveSpan();
-  activeSpan?.setAttribute('warden.feedback.auto_resolve.fix_eval_count', autoResolvedByFixEvaluation);
-  activeSpan?.setAttribute('warden.feedback.auto_resolve.stale_count', autoResolvedByStaleCheck);
+  activeSpan?.setAttribute(
+    "warden.feedback.auto_resolve.fix_eval_count",
+    autoResolvedByFixEvaluation,
+  );
+  activeSpan?.setAttribute(
+    "warden.feedback.auto_resolve.stale_count",
+    autoResolvedByStaleCheck,
+  );
 
   // Dismiss CHANGES_REQUESTED only if every unresolved comment was resolved
   if (allResolved) {
     const previousReviewInfo = await fetchPreviousReviewInfo(octokit, context);
-    if (previousReviewInfo?.state === 'CHANGES_REQUESTED') {
+    if (previousReviewInfo?.state === "CHANGES_REQUESTED") {
       try {
         await octokit.pulls.dismissReview({
           owner: context.repository.owner,
           repo: context.repository.name,
           pull_number: context.pullRequest.number,
           review_id: previousReviewInfo.reviewId,
-          message: 'All previously reported issues have been resolved.',
+          message: "All previously reported issues have been resolved.",
         });
-        logAction('Dismissed previous CHANGES_REQUESTED review');
+        logAction("Dismissed previous CHANGES_REQUESTED review");
       } catch (error) {
         warnAction(`Failed to dismiss previous review: ${error}`);
       }
@@ -670,32 +849,35 @@ export async function runPRWorkflow(
   inputs: ActionInputs,
   eventName: string,
   eventPath: string,
-  repoPath: string
+  repoPath: string,
 ): Promise<void> {
   return Sentry.startSpan(
-    { op: 'workflow.run', name: 'review pull_request' },
+    { op: "workflow.run", name: "review pull_request" },
     async (span) => {
-      span.setAttribute('github.event', eventName);
+      span.setAttribute("github.event", eventName);
 
       const initResult = await Sentry.startSpan(
-        { op: 'workflow.init', name: 'initialize workflow' },
-        () => initializeWorkflow(octokit, inputs, eventName, eventPath, repoPath),
+        { op: "workflow.init", name: "initialize workflow" },
+        () =>
+          initializeWorkflow(octokit, inputs, eventName, eventPath, repoPath),
       );
 
       if (!initResult) {
-        setOutput('findings-count', 0);
-        setOutput('high-count', 0);
-        setOutput('summary', 'No warden.toml found');
+        setOutput("findings-count", 0);
+        setOutput("high-count", 0);
+        setOutput("summary", "No warden.toml found");
         try {
-          const fullName = process.env['GITHUB_REPOSITORY'] ?? '';
-          const [o = '', n = ''] = fullName.split('/');
+          const fullName = process.env["GITHUB_REPOSITORY"] ?? "";
+          const [o = "", n = ""] = fullName.split("/");
           writeFindingsOutput([], {
-            eventType: 'pull_request',
-            action: '',
-            repository: { owner: o, name: n, fullName, defaultBranch: '' },
+            eventType: "pull_request",
+            action: "",
+            repository: { owner: o, name: n, fullName, defaultBranch: "" },
             repoPath,
           });
-        } catch { /* non-fatal */ }
+        } catch {
+          /* non-fatal */
+        }
         return;
       }
 
@@ -705,49 +887,66 @@ export async function runPRWorkflow(
       if (context.pullRequest) {
         Sentry.setUser({ username: context.pullRequest.author });
       }
-      Sentry.setContext('repository', {
+      Sentry.setContext("repository", {
         owner: context.repository.owner,
         name: context.repository.name,
       });
       if (context.pullRequest) {
-        Sentry.setContext('pull_request', {
+        Sentry.setContext("pull_request", {
           number: context.pullRequest.number,
           baseBranch: context.pullRequest.baseBranch,
           headBranch: context.pullRequest.headBranch,
         });
       }
 
-      setGlobalAttributes({ 'warden.repository': context.repository.fullName });
+      setGlobalAttributes({ "warden.repository": context.repository.fullName });
       emitRunMetric();
 
       const traceId = span.spanContext().traceId;
-      logger.info('Workflow initialized', {
-        'trigger.count': matchedTriggers.length,
-        'trace.id': traceId,
+      logger.info("Workflow initialized", {
+        "trigger.count": matchedTriggers.length,
+        "trace.id": traceId,
       });
 
       if (matchedTriggers.length === 0) {
-        await cleanupOrphanedComments(octokit, context, inputs.anthropicApiKey, config.defaults?.auxiliaryMaxRetries);
-        setOutput('findings-count', 0);
-        setOutput('high-count', 0);
-        setOutput('summary', 'No triggers matched');
-        try { writeFindingsOutput([], context); } catch { /* non-fatal */ }
+        await cleanupOrphanedComments(
+          octokit,
+          context,
+          inputs.anthropicApiKey,
+          config.defaults?.auxiliaryMaxRetries,
+        );
+        setOutput("findings-count", 0);
+        setOutput("high-count", 0);
+        setOutput("summary", "No triggers matched");
+        try {
+          writeFindingsOutput([], context);
+        } catch {
+          /* non-fatal */
+        }
         return;
       }
 
       const { coreCheckId, previousReviewInfo } = await Sentry.startSpan(
-        { op: 'workflow.setup', name: 'setup github state' },
+        { op: "workflow.setup", name: "setup github state" },
         () => setupGitHubState(octokit, context),
       );
 
       const results = await Sentry.startSpan(
-        { op: 'workflow.execute', name: 'execute triggers' },
-        () => executeAllTriggers(matchedTriggers, octokit, context, config, inputs),
+        { op: "workflow.execute", name: "execute triggers" },
+        () =>
+          executeAllTriggers(matchedTriggers, octokit, context, config, inputs),
       );
 
       const reviewPhase = await Sentry.startSpan(
-        { op: 'workflow.review', name: 'post reviews' },
-        () => postReviewsAndTrackFailures(octokit, context, results, inputs, config.defaults?.auxiliaryMaxRetries),
+        { op: "workflow.review", name: "post reviews" },
+        () =>
+          postReviewsAndTrackFailures(
+            octokit,
+            context,
+            results,
+            inputs,
+            config.defaults?.auxiliaryMaxRetries,
+          ),
       );
 
       const triggerErrors = collectTriggerErrors(results);
@@ -757,28 +956,37 @@ export async function runPRWorkflow(
       const allFindings = reviewPhase.reports.flatMap((r) => r.findings);
 
       await Sentry.startSpan(
-        { op: 'workflow.resolve', name: 'resolve stale comments' },
+        { op: "workflow.resolve", name: "resolve stale comments" },
         async (resolveSpan) => {
           const resolutionResult = await evaluateFixesAndResolveStale(
-            octokit, context, reviewPhase.fetchedComments,
-            allFindings, canResolveStale, inputs.anthropicApiKey,
+            octokit,
+            context,
+            reviewPhase.fetchedComments,
+            allFindings,
+            canResolveStale,
+            inputs.anthropicApiKey,
             config.defaults?.auxiliaryMaxRetries,
           );
           resolveSpan.setAttribute(
-            'warden.feedback.auto_resolve.fix_eval_count',
-            resolutionResult.autoResolvedByFixEvaluation
+            "warden.feedback.auto_resolve.fix_eval_count",
+            resolutionResult.autoResolvedByFixEvaluation,
           );
           resolveSpan.setAttribute(
-            'warden.feedback.auto_resolve.stale_count',
-            resolutionResult.autoResolvedByStaleCheck
+            "warden.feedback.auto_resolve.stale_count",
+            resolutionResult.autoResolvedByStaleCheck,
           );
         },
       );
 
       await finalizeWorkflow(
-        octokit, context, previousReviewInfo, coreCheckId,
-        results, reviewPhase.reports,
-        reviewPhase.shouldFailAction, reviewPhase.failureReasons,
+        octokit,
+        context,
+        previousReviewInfo,
+        coreCheckId,
+        results,
+        reviewPhase.reports,
+        reviewPhase.shouldFailAction,
+        reviewPhase.failureReasons,
         canResolveStale,
       );
     },

@@ -11,7 +11,11 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type { McpServerConfig, OpenAIToolDefinition, GeminiToolDeclaration } from "./types.js";
+import type {
+  McpServerConfig,
+  OpenAIToolDefinition,
+  GeminiToolDeclaration,
+} from "./types.js";
 
 /**
  * A connected MCP server with its discovered tools.

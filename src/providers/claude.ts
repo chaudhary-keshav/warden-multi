@@ -75,10 +75,7 @@ export class ClaudeProvider implements LLMProvider {
         // Pass MCP servers natively — Claude SDK handles them directly
         ...(mcpServers && Object.keys(mcpServers).length > 0
           ? {
-              mcpServers: mcpServers as Record<
-                string,
-                ClaudeMcpServerConfig
-              >,
+              mcpServers: mcpServers as Record<string, ClaudeMcpServerConfig>,
             }
           : {}),
         stderr: (data: string) => {

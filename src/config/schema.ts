@@ -230,6 +230,32 @@ export const DefaultsSchema = z.object({
 });
 export type Defaults = z.infer<typeof DefaultsSchema>;
 
+// Pipeline compaction configuration
+export const PipelineCompactionConfigSchema = z.object({
+  /** Enable inter-skill context compaction (default: true) */
+  enabled: z.boolean().default(true),
+  /** Max tokens for compacted context (default: 500) */
+  maxTokens: z.number().int().positive().default(500),
+  /** Pass prior findings to next skill for dedup awareness (default: true) */
+  includeFindings: z.boolean().default(true),
+});
+export type PipelineCompactionConfig = z.infer<
+  typeof PipelineCompactionConfigSchema
+>;
+
+// Pipeline configuration for sequential execution
+export const PipelineConfigSchema = z.object({
+  /** Execution mode: 'sequential' runs skills one-at-a-time, 'parallel' runs all at once (default: parallel) */
+  mode: z.enum(["sequential", "parallel"]).default("parallel"),
+  /** Model to use for compaction (uses provider's auxiliary model if not specified) */
+  compactionModel: z.string().optional(),
+  /** Explicit skill execution order for sequential mode (narrow → broad). If omitted, uses config order. */
+  skillOrder: z.array(z.string()).optional(),
+  /** Compaction settings */
+  compaction: PipelineCompactionConfigSchema.optional(),
+});
+export type PipelineConfig = z.infer<typeof PipelineConfigSchema>;
+
 // Log cleanup mode
 export const LogCleanupModeSchema = z.enum(["ask", "auto", "never"]);
 export type LogCleanupMode = z.infer<typeof LogCleanupModeSchema>;
@@ -251,6 +277,8 @@ export const WardenConfigSchema = z
     skills: z.array(SkillConfigSchema).default([]),
     runner: RunnerConfigSchema.optional(),
     logs: LogsConfigSchema.optional(),
+    /** Pipeline configuration for sequential multi-skill execution */
+    pipeline: PipelineConfigSchema.optional(),
     /** MCP server configurations keyed by server name */
     mcp: z.record(z.string(), McpServerConfigSchema).optional(),
   })

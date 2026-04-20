@@ -79,13 +79,18 @@ export class GeminiProvider implements LLMProvider {
 
     // Initialize MCP client if configured
     let mcpClient: McpClientManager | undefined;
-    let allToolDeclarations: GeminiToolDeclaration[] = [...TOOL_DECLARATIONS_GEMINI];
+    let allToolDeclarations: GeminiToolDeclaration[] = [
+      ...TOOL_DECLARATIONS_GEMINI,
+    ];
 
     if (mcpServers && Object.keys(mcpServers).length > 0) {
       mcpClient = new McpClientManager(mcpServers);
       try {
         await mcpClient.connect();
-        allToolDeclarations = [...TOOL_DECLARATIONS_GEMINI, ...mcpClient.getGeminiToolDeclarations()];
+        allToolDeclarations = [
+          ...TOOL_DECLARATIONS_GEMINI,
+          ...mcpClient.getGeminiToolDeclarations(),
+        ];
       } catch (error) {
         console.error(
           `::warning::MCP initialization failed, continuing without MCP tools: ${error instanceof Error ? error.message : String(error)}`,
@@ -166,7 +171,10 @@ export class GeminiProvider implements LLMProvider {
           const fcName = fc.name ?? "";
           // Route to MCP client or local tool execution
           const toolResult = mcpClient?.isMcpTool(fcName)
-            ? await mcpClient.callTool(fcName, (fc.args as Record<string, unknown>) ?? {})
+            ? await mcpClient.callTool(
+                fcName,
+                (fc.args as Record<string, unknown>) ?? {},
+              )
             : await executeLocalTool(
                 fcName,
                 (fc.args as Record<string, unknown>) ?? {},

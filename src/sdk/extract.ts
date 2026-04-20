@@ -1,13 +1,18 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import Anthropic from '@anthropic-ai/sdk';
-import { z } from 'zod';
-import { customAlphabet } from 'nanoid';
-import { FindingSchema, compareFindingPriority } from '../types/index.js';
-import type { Finding, Location, UsageStats } from '../types/index.js';
-import { Sentry } from '../sentry.js';
-import { callHaiku, DEFAULT_AUXILIARY_MAX_RETRIES, HAIKU_MODEL, setGenAiResponseAttrs } from './haiku.js';
-import { apiUsageToStats } from './pricing.js';
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
+import { customAlphabet } from "nanoid";
+import { FindingSchema, compareFindingPriority } from "../types/index.js";
+import type { Finding, Location, UsageStats } from "../types/index.js";
+import { Sentry } from "../sentry.js";
+import {
+  callHaiku,
+  DEFAULT_AUXILIARY_MAX_RETRIES,
+  HAIKU_MODEL,
+  setGenAiResponseAttrs,
+} from "./haiku.js";
+import { apiUsageToStats } from "./pricing.js";
 
 /** Pattern to match the start of findings JSON (allows whitespace after brace) */
 export const FINDINGS_JSON_START = /\{\s*"findings"/;
@@ -16,14 +21,22 @@ export const FINDINGS_JSON_START = /\{\s*"findings"/;
  * Result from extracting findings JSON from text.
  */
 export type ExtractFindingsResult =
-  | { success: true; findings: unknown[]; usage?: UsageStats }
+  | {
+      success: true;
+      findings: unknown[];
+      reasoning?: string;
+      usage?: UsageStats;
+    }
   | { success: false; error: string; preview: string; usage?: UsageStats };
 
 /**
  * Extract JSON object from text, handling nested braces correctly.
  * Starts from the given position and returns the balanced JSON object.
  */
-export function extractBalancedJson(text: string, startIndex: number): string | null {
+export function extractBalancedJson(
+  text: string,
+  startIndex: number,
+): string | null {
   let depth = 0;
   let inString = false;
   let escape = false;
@@ -36,7 +49,7 @@ export function extractBalancedJson(text: string, startIndex: number): string | 
       continue;
     }
 
-    if (char === '\\' && inString) {
+    if (char === "\\" && inString) {
       escape = true;
       continue;
     }
@@ -48,8 +61,8 @@ export function extractBalancedJson(text: string, startIndex: number): string | 
 
     if (inString) continue;
 
-    if (char === '{') depth++;
-    if (char === '}') {
+    if (char === "{") depth++;
+    if (char === "}") {
       depth--;
       if (depth === 0) {
         return text.slice(startIndex, i + 1);
@@ -78,7 +91,7 @@ export function extractFindingsJson(rawText: string): ExtractFindingsResult {
   if (!findingsMatch || findingsMatch.index === undefined) {
     return {
       success: false,
-      error: 'no_findings_json',
+      error: "no_findings_json",
       preview: text.slice(0, 200),
     };
   }
@@ -89,7 +102,7 @@ export function extractFindingsJson(rawText: string): ExtractFindingsResult {
   if (!jsonStr) {
     return {
       success: false,
-      error: 'unbalanced_json',
+      error: "unbalanced_json",
       preview: text.slice(findingsStart, findingsStart + 200),
     };
   }
@@ -101,16 +114,20 @@ export function extractFindingsJson(rawText: string): ExtractFindingsResult {
   } catch {
     return {
       success: false,
-      error: 'invalid_json',
+      error: "invalid_json",
       preview: jsonStr.slice(0, 200),
     };
   }
 
   // Validate structure
-  if (typeof parsed !== 'object' || parsed === null || !('findings' in parsed)) {
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("findings" in parsed)
+  ) {
     return {
       success: false,
-      error: 'missing_findings_key',
+      error: "missing_findings_key",
       preview: jsonStr.slice(0, 200),
     };
   }
@@ -119,12 +136,19 @@ export function extractFindingsJson(rawText: string): ExtractFindingsResult {
   if (!Array.isArray(findings)) {
     return {
       success: false,
-      error: 'findings_not_array',
+      error: "findings_not_array",
       preview: jsonStr.slice(0, 200),
     };
   }
 
-  return { success: true, findings };
+  // Extract optional reasoning trace for inter-skill context compaction
+  const reasoning = (parsed as { reasoning?: unknown }).reasoning;
+
+  return {
+    success: true,
+    findings,
+    reasoning: typeof reasoning === "string" ? reasoning : undefined,
+  };
 }
 
 /** Max characters to send to LLM fallback (roughly ~8k tokens) */
@@ -141,7 +165,10 @@ const LLM_FALLBACK_TIMEOUT_MS = 30000;
  *
  * Caller must ensure findings JSON exists in the text before calling.
  */
-export function truncateForLLMFallback(rawText: string, maxChars: number): string {
+export function truncateForLLMFallback(
+  rawText: string,
+  maxChars: number,
+): string {
   if (rawText.length <= maxChars) {
     return rawText;
   }
@@ -150,21 +177,25 @@ export function truncateForLLMFallback(rawText: string, maxChars: number): strin
 
   // If findings starts within our budget, simple truncation from start preserves it
   if (findingsIndex < maxChars - 20) {
-    return rawText.slice(0, maxChars) + '\n[... truncated]';
+    return rawText.slice(0, maxChars) + "\n[... truncated]";
   }
 
   // Findings is beyond our budget - skip to just before it
   // Keep minimal context (10% of budget or 200 chars, whichever is smaller)
   const markerOverhead = 40;
   const usableBudget = maxChars - markerOverhead;
-  const contextBefore = Math.min(200, Math.floor(usableBudget * 0.1), findingsIndex);
+  const contextBefore = Math.min(
+    200,
+    Math.floor(usableBudget * 0.1),
+    findingsIndex,
+  );
   const startIndex = findingsIndex - contextBefore;
   const endIndex = startIndex + usableBudget;
 
   const truncatedContent = rawText.slice(startIndex, endIndex);
-  const suffix = endIndex < rawText.length ? '\n[... truncated]' : '';
+  const suffix = endIndex < rawText.length ? "\n[... truncated]" : "";
 
-  return '[... truncated ...]\n' + truncatedContent + suffix;
+  return "[... truncated ...]\n" + truncatedContent + suffix;
 }
 
 /**
@@ -174,12 +205,12 @@ export function truncateForLLMFallback(rawText: string, maxChars: number): strin
 export async function extractFindingsWithLLM(
   rawText: string,
   apiKey?: string,
-  maxRetries?: number
+  maxRetries?: number,
 ): Promise<ExtractFindingsResult> {
   if (!apiKey) {
     return {
       success: false,
-      error: 'no_api_key_for_fallback',
+      error: "no_api_key_for_fallback",
       preview: rawText.slice(0, 200),
     };
   }
@@ -188,7 +219,7 @@ export async function extractFindingsWithLLM(
   if (!FINDINGS_JSON_START.test(rawText)) {
     return {
       success: false,
-      error: 'no_findings_to_extract',
+      error: "no_findings_to_extract",
       preview: rawText.slice(0, 200),
     };
   }
@@ -198,18 +229,22 @@ export async function extractFindingsWithLLM(
 
   return Sentry.startSpan(
     {
-      op: 'gen_ai.chat',
+      op: "gen_ai.chat",
       name: `chat ${HAIKU_MODEL}`,
       attributes: {
-        'gen_ai.operation.name': 'chat',
-        'gen_ai.provider.name': 'anthropic',
-        'gen_ai.request.model': HAIKU_MODEL,
-        'gen_ai.request.max_tokens': LLM_FALLBACK_MAX_TOKENS,
+        "gen_ai.operation.name": "chat",
+        "gen_ai.provider.name": "anthropic",
+        "gen_ai.request.model": HAIKU_MODEL,
+        "gen_ai.request.max_tokens": LLM_FALLBACK_MAX_TOKENS,
       },
     },
     async (span) => {
       try {
-        const client = new Anthropic({ apiKey, timeout: LLM_FALLBACK_TIMEOUT_MS, maxRetries: maxRetries ?? DEFAULT_AUXILIARY_MAX_RETRIES });
+        const client = new Anthropic({
+          apiKey,
+          timeout: LLM_FALLBACK_TIMEOUT_MS,
+          maxRetries: maxRetries ?? DEFAULT_AUXILIARY_MAX_RETRIES,
+        });
         const userContent = `Extract the findings JSON from this model output.
 Return ONLY valid JSON in format: {"findings": [...]}
 If no findings exist, return: {"findings": []}
@@ -217,10 +252,10 @@ If no findings exist, return: {"findings": []}
 Model output:
 ${truncatedText}`;
         const messages: Anthropic.MessageParam[] = [
-          { role: 'user', content: userContent },
+          { role: "user", content: userContent },
         ];
 
-        span.setAttribute('gen_ai.request.messages', JSON.stringify(messages));
+        span.setAttribute("gen_ai.request.messages", JSON.stringify(messages));
 
         const response = await client.messages.create({
           model: HAIKU_MODEL,
@@ -231,23 +266,29 @@ ${truncatedText}`;
         const usage = apiUsageToStats(HAIKU_MODEL, response.usage);
 
         const content = response.content[0];
-        if (!content || content.type !== 'text') {
+        if (!content || content.type !== "text") {
           setGenAiResponseAttrs(span, response.usage, response.stop_reason);
           return {
             success: false,
-            error: 'llm_unexpected_response',
+            error: "llm_unexpected_response",
             preview: rawText.slice(0, 200),
             usage,
           };
         }
 
-        setGenAiResponseAttrs(span, response.usage, response.stop_reason, content.text);
+        setGenAiResponseAttrs(
+          span,
+          response.usage,
+          response.stop_reason,
+          content.text,
+        );
 
         // Parse the LLM response as JSON
         const result = extractFindingsJson(content.text);
         return { ...result, usage };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
         return {
           success: false,
           error: `llm_extraction_failed: ${errorMessage}`,
@@ -259,7 +300,7 @@ ${truncatedText}`;
 }
 
 /** Unambiguous uppercase alphanumeric alphabet (no O/0, I/1). */
-const SHORT_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const SHORT_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 /** Length of each generated short ID (before formatting). */
 export const SHORT_ID_LENGTH = 6;
@@ -277,15 +318,18 @@ export function generateShortId(): string {
  * Validate and normalize findings from extracted JSON.
  * Replaces the LLM-provided ID with a short nanoid for stable cross-referencing.
  */
-export function validateFindings(findings: unknown[], filename: string): Finding[] {
+export function validateFindings(
+  findings: unknown[],
+  filename: string,
+): Finding[] {
   const validated: Finding[] = [];
 
   for (const f of findings) {
     // Normalize location path before validation
-    if (typeof f === 'object' && f !== null && 'location' in f) {
-      const loc = (f as Record<string, unknown>)['location'];
-      if (loc && typeof loc === 'object') {
-        (loc as Record<string, unknown>)['path'] = filename;
+    if (typeof f === "object" && f !== null && "location" in f) {
+      const loc = (f as Record<string, unknown>)["location"];
+      if (loc && typeof loc === "object") {
+        (loc as Record<string, unknown>)["path"] = filename;
       }
     }
 
@@ -294,7 +338,9 @@ export function validateFindings(findings: unknown[], filename: string): Finding
       validated.push({
         ...result.data,
         id: generateShortId(),
-        location: result.data.location ? { ...result.data.location, path: filename } : undefined,
+        location: result.data.location
+          ? { ...result.data.location, path: filename }
+          : undefined,
       });
     }
   }
@@ -320,7 +366,7 @@ export function deduplicateFindings(findings: Finding[]): Finding[] {
 // ---------------------------------------------------------------------------
 
 function locationKey(loc: Location): string {
-  return `${loc.path}:${loc.startLine}:${loc.endLine ?? ''}`;
+  return `${loc.path}:${loc.startLine}:${loc.endLine ?? ""}`;
 }
 
 /**
@@ -331,7 +377,9 @@ function locationKey(loc: Location): string {
  * @param sortedGroup - Findings sorted by priority (winner first, losers after).
  * @returns A shallow copy of the winner with merged locations, or undefined if empty.
  */
-export function mergeGroupLocations(sortedGroup: Finding[]): Finding | undefined {
+export function mergeGroupLocations(
+  sortedGroup: Finding[],
+): Finding | undefined {
   const winner = sortedGroup[0];
   if (!winner) return undefined;
 
@@ -391,7 +439,7 @@ interface ApplyGroupsResult {
  */
 export function applyMergeGroups(
   indexedFindings: Finding[],
-  groups: number[][]
+  groups: number[][],
 ): ApplyGroupsResult {
   const absorbed = new Set<Finding>();
   const replacements = new Map<Finding, Finding>();
@@ -450,16 +498,21 @@ export interface MergeResult {
  * Read a code snippet from disk around a given line.
  * Returns empty string on any I/O error.
  */
-function readSnippet(repoPath: string, filePath: string, startLine: number, contextLines = 3): string {
+function readSnippet(
+  repoPath: string,
+  filePath: string,
+  startLine: number,
+  contextLines = 3,
+): string {
   try {
     const fullPath = join(repoPath, filePath);
-    const content = readFileSync(fullPath, 'utf-8');
-    const lines = content.split('\n');
+    const content = readFileSync(fullPath, "utf-8");
+    const lines = content.split("\n");
     const start = Math.max(0, startLine - 1 - contextLines);
     const end = Math.min(lines.length, startLine - 1 + contextLines + 1);
-    return lines.slice(start, end).join('\n');
+    return lines.slice(start, end).join("\n");
   } catch {
-    return '';
+    return "";
   }
 }
 
@@ -476,10 +529,10 @@ function readSnippet(repoPath: string, filePath: string, startLine: number, cont
  */
 export async function mergeCrossLocationFindings(
   findings: Finding[],
-  options?: { apiKey?: string; repoPath?: string; maxRetries?: number }
+  options?: { apiKey?: string; repoPath?: string; maxRetries?: number },
 ): Promise<MergeResult> {
   const apiKey = options?.apiKey;
-  const repoPath = options?.repoPath ?? '.';
+  const repoPath = options?.repoPath ?? ".";
 
   // Early exit: need at least 2 located findings to merge
   const withLocations = findings.filter((f) => f.location);
@@ -490,17 +543,21 @@ export async function mergeCrossLocationFindings(
   // Build context for each finding
   const findingDescriptions = withLocations.map((f, i) => {
     const loc = f.location;
-    if (!loc) return '';
-    const range = loc.endLine ? `${loc.startLine}-${loc.endLine}` : `${loc.startLine}`;
+    if (!loc) return "";
+    const range = loc.endLine
+      ? `${loc.startLine}-${loc.endLine}`
+      : `${loc.startLine}`;
     const snippet = readSnippet(repoPath, loc.path, loc.startLine);
-    const codeBlock = snippet ? `\n   Code: ${snippet.split('\n').join('\n   ')}` : '';
+    const codeBlock = snippet
+      ? `\n   Code: ${snippet.split("\n").join("\n   ")}`
+      : "";
     return `${i + 1}. [${loc.path}:${range}] "${f.title}" - ${f.description}${codeBlock}`;
   });
 
   const prompt = `Identify which of these code review findings describe the SAME underlying issue appearing at different locations. Group them by shared root cause.
 
 Findings:
-${findingDescriptions.join('\n')}
+${findingDescriptions.join("\n")}
 
 Return a JSON array of arrays, where each inner array contains the 1-based indices of findings about the same issue.
 Singletons should not appear. Return [] if no findings describe the same issue.`;
@@ -517,7 +574,10 @@ Singletons should not appear. Return [] if no findings describe the same issue.`
     return { findings, mergedCount: 0, usage: result.usage };
   }
 
-  const { absorbed, replacements } = applyMergeGroups(withLocations, result.data);
+  const { absorbed, replacements } = applyMergeGroups(
+    withLocations,
+    result.data,
+  );
 
   if (absorbed.size === 0) {
     return { findings, mergedCount: 0, usage: result.usage };

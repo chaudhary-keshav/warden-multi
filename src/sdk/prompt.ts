@@ -1,7 +1,9 @@
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import type { SkillDefinition } from '../config/schema.js';
-import { formatHunkForAnalysis, type HunkWithContext } from '../diff/index.js';
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import type { SkillDefinition } from "../config/schema.js";
+import { formatHunkForAnalysis, type HunkWithContext } from "../diff/index.js";
+import type { PipelineState } from "../pipeline/types.js";
+import type { Finding } from "../types/index.js";
 
 /**
  * Context about the PR being analyzed, for inclusion in prompts.
@@ -75,7 +77,8 @@ Full schema:
         "diff": "unified diff format"
       }
     }
-  ]
+  ],
+  "reasoning": "Brief summary of your analysis approach, key observations, patterns noticed, and areas you examined but found no issues in. This helps subsequent reviewers understand what was already checked."
 }
 
 Requirements:
@@ -94,11 +97,11 @@ Requirements:
 
   const { rootDir } = skill;
   if (rootDir) {
-    const resourceDirs = ['scripts', 'references', 'assets'].filter((dir) =>
-      existsSync(join(rootDir, dir))
+    const resourceDirs = ["scripts", "references", "assets"].filter((dir) =>
+      existsSync(join(rootDir, dir)),
     );
     if (resourceDirs.length > 0) {
-      const dirList = resourceDirs.map((d) => `${d}/`).join(', ');
+      const dirList = resourceDirs.map((d) => `${d}/`).join(", ");
       sections.push(`<skill_resources>
 This skill is located at: ${rootDir}
 You can read files from ${dirList} subdirectories using the Read tool with the full path.
@@ -106,7 +109,7 @@ You can read files from ${dirList} subdirectories using the Read tool with the f
     }
   }
 
-  return sections.join('\n\n');
+  return sections.join("\n\n");
 }
 
 /**
@@ -115,11 +118,13 @@ You can read files from ${dirList} subdirectories using the Read tool with the f
 export function buildHunkUserPrompt(
   skill: SkillDefinition,
   hunkCtx: HunkWithContext,
-  prContext?: PRPromptContext
+  prContext?: PRPromptContext,
 ): string {
   const sections: string[] = [];
 
-  sections.push(`Analyze this code change according to the "${skill.name}" skill criteria.`);
+  sections.push(
+    `Analyze this code change according to the "${skill.name}" skill criteria.`,
+  );
 
   // Include PR title and description for context on intent
   if (prContext?.title) {
@@ -127,9 +132,10 @@ export function buildHunkUserPrompt(
     if (prContext.body) {
       // Truncate very long PR descriptions to avoid bloating prompts
       const maxBodyLength = 1000;
-      const body = prContext.body.length > maxBodyLength
-        ? prContext.body.slice(0, maxBodyLength) + '...'
-        : prContext.body;
+      const body =
+        prContext.body.length > maxBodyLength
+          ? prContext.body.slice(0, maxBodyLength) + "..."
+          : prContext.body;
       prSection += `\n\n**Description:**\n${body}`;
     }
     sections.push(prSection);
@@ -137,11 +143,12 @@ export function buildHunkUserPrompt(
 
   // Include list of other files being changed in the PR for context
   const maxContextFiles = prContext?.maxContextFiles ?? 50;
-  const otherFiles = prContext?.changedFiles.filter((f) => f !== hunkCtx.filename) ?? [];
+  const otherFiles =
+    prContext?.changedFiles.filter((f) => f !== hunkCtx.filename) ?? [];
   if (otherFiles.length > 0 && maxContextFiles > 0) {
     const displayFiles = otherFiles.slice(0, maxContextFiles);
     const remaining = otherFiles.length - displayFiles.length;
-    let fileList = displayFiles.map((f) => `- ${f}`).join('\n');
+    let fileList = displayFiles.map((f) => `- ${f}`).join("\n");
     if (remaining > 0) {
       fileList += `\n- ... and ${remaining} more`;
     }
@@ -153,8 +160,68 @@ ${fileList}`);
   sections.push(formatHunkForAnalysis(hunkCtx));
 
   sections.push(
-    `IMPORTANT: Only report findings that are explicitly covered by the skill instructions. Do not report general code quality issues, bugs, or improvements unless the skill specifically asks for them. Return an empty findings array if no issues match the skill's criteria.`
+    `IMPORTANT: Only report findings that are explicitly covered by the skill instructions. Do not report general code quality issues, bugs, or improvements unless the skill specifically asks for them. Return an empty findings array if no issues match the skill's criteria.`,
   );
 
-  return sections.join('\n\n');
+  return sections.join("\n\n");
+}
+
+/**
+ * Format finding summaries for injection into augmented prompts.
+ * Only includes title and severity to minimize token usage.
+ */
+function formatFindingSummaries(findings: Finding[]): string {
+  if (findings.length === 0) return "None";
+
+  return findings
+    .map(
+      (f) =>
+        `- [${f.severity}] ${f.title}${f.location?.path ? ` (${f.location.path}:${f.location.startLine})` : ""}`,
+    )
+    .join("\n");
+}
+
+/**
+ * Build an augmented system prompt that includes prior review context
+ * from the sequential pipeline.
+ *
+ * For the first skill in the pipeline (no prior context), returns the
+ * original skill prompt unchanged. For subsequent skills, appends a
+ * "Prior Review Context" section with compacted observations and
+ * finding summaries from earlier skills.
+ */
+export function buildAugmentedSystemPrompt(
+  skill: SkillDefinition,
+  state: PipelineState,
+  options?: { includeFindings?: boolean },
+): string {
+  if (state.completedSkills.length === 0) {
+    return buildHunkSystemPrompt(skill);
+  }
+
+  const basePrompt = buildHunkSystemPrompt(skill);
+  const includeFindings = options?.includeFindings !== false;
+
+  const sections = [
+    basePrompt,
+    `## Prior Review Context
+
+The following skills have already reviewed this PR: ${state.completedSkills.join(", ")}
+
+### Observations from prior reviews:
+${state.compactedContext || "No observations recorded."}`,
+  ];
+
+  if (includeFindings && state.allFindings.length > 0) {
+    sections.push(`### Existing findings (${state.allFindings.length} total):
+${formatFindingSummaries(state.allFindings)}`);
+  }
+
+  sections.push(`IMPORTANT:
+- Do NOT duplicate findings that overlap with the above.
+- Focus on issues specific to YOUR skill's domain.
+- You may reference prior observations to support deeper analysis.
+- If a prior skill flagged an area as "needs deeper review", prioritize it.`);
+
+  return sections.join("\n\n");
 }

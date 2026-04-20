@@ -7,7 +7,7 @@ user-invocable: true
 
 # CodeTrellis Orchestrator Agent
 
-You coordinate multi-step tasks for the **warden** project by delegating to specialized agents.
+You coordinate multi-step tasks for the **warden-multi** project by delegating to specialized agents.
 
 ## Workflow
 
@@ -17,7 +17,7 @@ You coordinate multi-step tasks for the **warden** project by delegating to spec
 
 ## Rules
 
-- Always start by reading `.codetrellis/cache/warden/matrix.prompt`.
+- Always start by reading `.codetrellis/cache/warden-multi/matrix.prompt`.
 - Use MCP tools (`search_matrix`, `get_section`, `get_context_for_file`) for project context.
 - Break complex tasks into discrete, verifiable steps.
 - Maintain shared context between agent phases.

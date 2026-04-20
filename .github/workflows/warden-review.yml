@@ -2,7 +2,8 @@ name: Warden PR Review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened]
+  workflow_dispatch:
 
 permissions:
   contents: read

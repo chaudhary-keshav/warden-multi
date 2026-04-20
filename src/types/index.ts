@@ -215,6 +215,8 @@ export const SkillReportSchema = z.object({
   files: z.array(FileReportSchema).optional(),
   /** Model used for this skill's analysis */
   model: z.string().optional(),
+  /** Reasoning traces from LLM analysis (used for inter-skill context compaction in sequential pipeline) */
+  reasoningTraces: z.array(z.string()).optional(),
 });
 export type SkillReport = z.infer<typeof SkillReportSchema>;
 

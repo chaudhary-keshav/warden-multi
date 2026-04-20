@@ -54,7 +54,12 @@ import { findBotReviewState } from "../review-state.js";
 import type { BotReviewInfo } from "../review-state.js";
 import type { ActionInputs } from "../inputs.js";
 import { executeTrigger } from "../triggers/executor.js";
-import type { TriggerResult } from "../triggers/executor.js";
+import type {
+  TriggerResult,
+  TriggerExecutorDeps,
+} from "../triggers/executor.js";
+import { executeSequentialPipeline } from "../../pipeline/sequential.js";
+import type { PipelineState } from "../../pipeline/types.js";
 import { postTriggerReview } from "../review/poster.js";
 import { shouldResolveStaleComments } from "../review/coordination.js";
 import { createProvider } from "../../providers/index.js";
@@ -320,7 +325,7 @@ async function setupGitHubState(
 }
 
 /**
- * Run all matched triggers in parallel batches.
+ * Run all matched triggers, either in parallel or sequential mode.
  */
 async function executeAllTriggers(
   matchedTriggers: ResolvedTrigger[],
@@ -330,6 +335,7 @@ async function executeAllTriggers(
   inputs: ActionInputs,
 ): Promise<TriggerResult[]> {
   const concurrency = config.runner?.concurrency ?? inputs.parallel;
+  const pipelineMode = config.pipeline?.mode ?? "parallel";
 
   // Resolve provider from inputs or config
   const providerName: ProviderName =
@@ -349,22 +355,40 @@ async function executeAllTriggers(
   // All triggers launch immediately; the semaphore limits concurrent file analyses.
   const semaphore = new Semaphore(concurrency);
 
-  return runPool(matchedTriggers, matchedTriggers.length, (trigger) =>
-    executeTrigger(trigger, {
-      octokit,
+  const buildDeps = (
+    trigger: ResolvedTrigger,
+    pipelineState?: PipelineState,
+  ): TriggerExecutorDeps => ({
+    octokit,
+    context,
+    config,
+    anthropicApiKey: inputs.anthropicApiKey,
+    claudePath,
+    provider,
+    globalFailOn: inputs.failOn,
+    globalReportOn: inputs.reportOn,
+    globalMaxFindings: inputs.maxFindings,
+    globalRequestChanges: inputs.requestChanges,
+    globalFailCheck: inputs.failCheck,
+    semaphore,
+    mcpServers: config.mcp as Record<string, McpServerConfig> | undefined,
+    pipelineState,
+  });
+
+  if (pipelineMode === "sequential") {
+    // Sequential mode with inter-skill context compaction
+    return executeSequentialPipeline(
+      matchedTriggers,
       context,
       config,
-      anthropicApiKey: inputs.anthropicApiKey,
-      claudePath,
       provider,
-      globalFailOn: inputs.failOn,
-      globalReportOn: inputs.reportOn,
-      globalMaxFindings: inputs.maxFindings,
-      globalRequestChanges: inputs.requestChanges,
-      globalFailCheck: inputs.failCheck,
-      semaphore,
-      mcpServers: config.mcp as Record<string, McpServerConfig> | undefined,
-    }),
+      buildDeps,
+    );
+  }
+
+  // Parallel mode (default): run all triggers concurrently
+  return runPool(matchedTriggers, matchedTriggers.length, (trigger) =>
+    executeTrigger(trigger, buildDeps(trigger)),
   );
 }
 

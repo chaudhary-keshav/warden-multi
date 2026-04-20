@@ -37,6 +37,7 @@ import type { Semaphore } from "../../utils/index.js";
 import { Verbosity } from "../../cli/output/verbosity.js";
 import type { LLMProvider } from "../../providers/types.js";
 import type { McpServerConfig } from "../../providers/types.js";
+import type { PipelineState } from "../../pipeline/types.js";
 
 /** Log-mode output for CI: no TTY, no color. */
 const CI_OUTPUT_MODE: OutputMode = {
@@ -75,6 +76,8 @@ export interface TriggerExecutorDeps {
   semaphore?: Semaphore;
   /** MCP server configurations */
   mcpServers?: Record<string, McpServerConfig>;
+  /** Pipeline state for sequential execution (augmented prompts) */
+  pipelineState?: PipelineState;
 }
 
 /**
@@ -179,6 +182,7 @@ export async function executeTrigger(
             auxiliaryMaxRetries: config.defaults?.auxiliaryMaxRetries,
             provider,
             mcpServers: deps.mcpServers,
+            pipelineState: deps.pipelineState,
           },
         };
 
